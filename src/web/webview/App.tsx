@@ -17,6 +17,11 @@ import {
 	Checkbox,
 	makeStyles,
 	tokens,
+	Menu,
+	MenuTrigger,
+	MenuPopover,
+	MenuList,
+	MenuItem,
 } from '@fluentui/react-components';
 import {
 	AddRegular,
@@ -24,6 +29,8 @@ import {
 	TableRegular,
 	WeatherMoonRegular,
 	WeatherSunnyRegular,
+	SaveRegular,
+	DocumentTextRegular,
 } from '@fluentui/react-icons';
 import {
 	ReactFlow,
@@ -40,6 +47,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import { Database, Schema, Table, Column, VSCodeAPI } from './types';
 import TableNode from './components/TableNode';
+import { TableEditorSidebar } from './components/TableEditorSidebar';
 
 declare const acquireVsCodeApi: () => VSCodeAPI;
 const vscode = acquireVsCodeApi();
@@ -68,6 +76,23 @@ const useStyles = makeStyles({
 	canvas: {
 		flex: 1,
 		backgroundColor: tokens.colorNeutralBackground2,
+	},
+	previewDialog: {
+		width: '80vw',
+		maxWidth: '1200px',
+	},
+	previewContent: {
+		minHeight: '400px',
+		maxHeight: '70vh',
+		overflowY: 'auto',
+	},
+	sqlPreview: {
+		fontFamily: 'monospace',
+		whiteSpace: 'pre-wrap',
+		backgroundColor: tokens.colorNeutralBackground3,
+		padding: tokens.spacingVerticalM,
+		borderRadius: tokens.borderRadiusMedium,
+		fontSize: tokens.fontSizeBase200,
 	},
 	formGroup: {
 		marginBottom: tokens.spacingVerticalM,
@@ -107,37 +132,79 @@ export const App: React.FC = () => {
 	// Dialog states
 	const [newDbDialogOpen, setNewDbDialogOpen] = useState(false);
 	const [addSchemaDialogOpen, setAddSchemaDialogOpen] = useState(false);
-	const [addTableDialogOpen, setAddTableDialogOpen] = useState(false);
-	const [editTableDialogOpen, setEditTableDialogOpen] = useState(false);
+	const [previewDialogOpen, setPreviewDialogOpen] = useState(false);
+
+	// Sidebar state
+	const [sidebarOpen, setSidebarOpen] = useState(false);
+	const [sidebarMode, setSidebarMode] = useState<'add' | 'edit'>('edit');
+	const [editingTable, setEditingTable] = useState<{ schema: string; table: Table } | null>(null);
+
+	// SQL Preview state
+	const [previewSQL, setPreviewSQL] = useState('');
 
 	// Form states
 	const [dbName, setDbName] = useState('');
 	const [schemaName, setSchemaName] = useState('');
-	const [tableName, setTableName] = useState('');
-	const [selectedSchema, setSelectedSchema] = useState('');
-	const [columns, setColumns] = useState<Column[]>([
-		{ name: '', type: 'INT', isPrimaryKey: false, isForeignKey: false, isNullable: true },
-	]);
-	
-	// Edit mode states
-	const [editingTable, setEditingTable] = useState<{ schema: string; table: Table } | null>(null);
 
-	useEffect(() => {
-		vscode.postMessage({ command: 'getDatabaseState' });
-
-		const handleMessage = (event: MessageEvent) => {
-			const message = event.data;
-			if (message.command === 'updateDatabase') {
-				setCurrentDatabase(message.database);
-				updateNodesFromDatabase(message.database);
-			}
-		};
-
-		window.addEventListener('message', handleMessage);
-		return () => window.removeEventListener('message', handleMessage);
+	const handleEditTable = useCallback((schemaName: string, table: Table) => {
+		setEditingTable({ schema: schemaName, table });
+		setSidebarMode('edit');
+		setSidebarOpen(true);
 	}, []);
 
-	const updateNodesFromDatabase = (database: Database | null) => {
+	const handleAddTable = useCallback((schemaName: string) => {
+		const newTable: Table = {
+			name: 'NewTable',
+			columns: [
+				{ name: 'Id', type: 'INT', isPrimaryKey: true, isForeignKey: false, isNullable: false },
+			],
+		};
+		setEditingTable({ schema: schemaName, table: newTable });
+		setSidebarMode('add');
+		setSidebarOpen(true);
+	}, []);
+
+	const handleSaveTable = useCallback((schemaName: string, oldTableName: string, updatedTable: Table) => {
+		if (sidebarMode === 'add') {
+			vscode.postMessage({
+				command: 'addTable',
+				schemaName,
+				table: updatedTable,
+			});
+		} else {
+			vscode.postMessage({
+				command: 'updateTable',
+				schemaName,
+				oldTableName,
+				table: updatedTable,
+			});
+		}
+	}, [sidebarMode]);
+
+	const getAllTablesForFKReferences = useCallback(() => {
+		if (!currentDatabase) return [];
+		return currentDatabase.schemas
+			.filter(s => s && s.tables)
+			.flatMap(s => 
+				s.tables
+					.filter(t => t && t.columns)
+					.map(t => ({
+						schema: s.name,
+						table: t.name,
+						columns: t.columns,
+					}))
+			);
+	}, [currentDatabase]);
+
+	const handleSaveDatabase = () => {
+		vscode.postMessage({ command: 'saveDatabase' });
+	};
+
+	const handlePreviewSQL = () => {
+		vscode.postMessage({ command: 'previewSQL' });
+	};
+
+	const updateNodesFromDatabase = useCallback((database: Database | null) => {
 		if (!database) {
 			setNodes([]);
 			setEdges([]);
@@ -149,8 +216,11 @@ export const App: React.FC = () => {
 		let yOffset = 50;
 
 		database.schemas.forEach((schema) => {
+			if (!schema || !schema.tables) return;
 			let xOffset = 50;
 			schema.tables.forEach((table) => {
+				if (!table || !table.name || !table.columns) return;
+
 				newNodes.push({
 					id: `${schema.name}.${table.name}`,
 					type: 'tableNode',
@@ -158,13 +228,13 @@ export const App: React.FC = () => {
 					data: {
 						schemaName: schema.name,
 						table: table,
-						onEdit: (schemaName: string, table: Table) => handleEditTable(schemaName, table),
+						onEdit: handleEditTable,
 					},
 				});
 
 				// Create edges for foreign keys
 				table.columns.forEach((col) => {
-					if (col.isForeignKey && col.foreignKeyRef) {
+					if (col.isForeignKey && col.foreignKeyRef && col.foreignKeyRef.schema && col.foreignKeyRef.table && col.foreignKeyRef.column) {
 						const sourceId = `${schema.name}.${table.name}`;
 						const targetId = `${col.foreignKeyRef.schema}.${col.foreignKeyRef.table}`;
 						newEdges.push({
@@ -188,15 +258,27 @@ export const App: React.FC = () => {
 
 		setNodes(newNodes);
 		setEdges(newEdges);
-	};
+	}, [setNodes, setEdges, handleEditTable]);
 
-	const handleEditTable = (schemaName: string, table: Table) => {
-		setEditingTable({ schema: schemaName, table });
-		setSelectedSchema(schemaName);
-		setTableName(table.name);
-		setColumns(table.columns.map(col => ({ ...col })));
-		setEditTableDialogOpen(true);
-	};
+	useEffect(() => {
+		vscode.postMessage({ command: 'getDatabaseState' });
+
+		const handleMessage = (event: MessageEvent) => {
+			const message = event.data;
+			if (message.command === 'updateDatabase') {
+				setCurrentDatabase(message.database);
+				updateNodesFromDatabase(message.database);
+			} else if (message.command === 'showSQLPreview') {
+				setPreviewSQL(message.sql);
+				setPreviewDialogOpen(true);
+			}
+		};
+
+		window.addEventListener('message', handleMessage);
+		return () => window.removeEventListener('message', handleMessage);
+	}, [updateNodesFromDatabase]);
+
+
 
 	const onConnect = useCallback(
 		(params: Connection | Edge) => setEdges((eds) => addEdge(params, eds)),
@@ -223,79 +305,6 @@ export const App: React.FC = () => {
 			setSchemaName('');
 			setAddSchemaDialogOpen(false);
 		}
-	};
-
-	const handleAddTable = () => {
-		if (!selectedSchema || !tableName.trim()) {
-			return;
-		}
-
-		const validColumns = columns.filter((col) => col.name.trim());
-		if (validColumns.length === 0) {
-			return;
-		}
-
-		vscode.postMessage({
-			command: 'addTable',
-			schemaName: selectedSchema,
-			table: {
-				name: tableName.trim(),
-				columns: validColumns,
-			},
-		});
-
-		setTableName('');
-		setColumns([
-			{ name: '', type: 'INT', isPrimaryKey: false, isForeignKey: false, isNullable: true },
-		]);
-		setAddTableDialogOpen(false);
-	};
-
-	const handleSaveEditedTable = () => {
-		if (!editingTable || !selectedSchema || !tableName.trim()) {
-			return;
-		}
-
-		const validColumns = columns.filter((col) => col.name.trim());
-		if (validColumns.length === 0) {
-			return;
-		}
-
-		vscode.postMessage({
-			command: 'updateTable',
-			schemaName: selectedSchema,
-			oldTableName: editingTable.table.name,
-			table: {
-				name: tableName.trim(),
-				columns: validColumns,
-				x: editingTable.table.x,
-				y: editingTable.table.y,
-			},
-		});
-
-		setEditingTable(null);
-		setTableName('');
-		setColumns([
-			{ name: '', type: 'INT', isPrimaryKey: false, isForeignKey: false, isNullable: true },
-		]);
-		setEditTableDialogOpen(false);
-	};
-
-	const addColumn = () => {
-		setColumns([
-			...columns,
-			{ name: '', type: 'INT', isPrimaryKey: false, isForeignKey: false, isNullable: true },
-		]);
-	};
-
-	const updateColumn = (index: number, field: keyof Column, value: any) => {
-		const newColumns = [...columns];
-		newColumns[index] = { ...newColumns[index], [field]: value };
-		setColumns(newColumns);
-	};
-
-	const removeColumn = (index: number) => {
-		setColumns(columns.filter((_, i) => i !== index));
 	};
 
 	return (
@@ -333,6 +342,14 @@ export const App: React.FC = () => {
 							</DialogBody>
 						</DialogSurface>
 					</Dialog>
+
+					<Button
+						icon={<DatabaseRegular />}
+						appearance="primary"
+						onClick={() => vscode.postMessage({ command: 'loadDatabase' })}
+					>
+						Load Database
+					</Button>
 
 					<Dialog
 						open={addSchemaDialogOpen}
@@ -373,295 +390,83 @@ export const App: React.FC = () => {
 						</DialogSurface>
 					</Dialog>
 
-					<Dialog
-						open={addTableDialogOpen}
-						onOpenChange={(_, data) => setAddTableDialogOpen(data.open)}
-					>
-						<DialogTrigger disableButtonEnhancement>
-							<Button
-								icon={<TableRegular />}
-								appearance="secondary"
-								disabled={!currentDatabase || currentDatabase.schemas.length === 0}
-							>
-								Add Table
-							</Button>
-						</DialogTrigger>
-						<DialogSurface>
-							<DialogBody>
-								<DialogTitle>Add Table</DialogTitle>
-								<DialogContent>
-									<div className={styles.formGroup}>
-										<Label htmlFor="tableSchema">Schema:</Label>
-										<Select
-											id="tableSchema"
-											value={selectedSchema}
-											onChange={(e) => setSelectedSchema(e.target.value)}
-										>
-											<option value="">Select schema...</option>
-											{currentDatabase?.schemas.map((schema) => (
-												<option key={schema.name} value={schema.name}>
-													{schema.name}
-												</option>
-											))}
-										</Select>
-									</div>
-									<div className={styles.formGroup}>
-										<Label htmlFor="tableName">Table Name:</Label>
-										<Input
-											id="tableName"
-											value={tableName}
-											onChange={(e) => setTableName(e.target.value)}
-											placeholder="Users"
-										/>
-									</div>
-									<div className={styles.formGroup}>
-										<Label>Columns:</Label>
-										<div className={styles.columnsList}>
-											{columns.map((col, index) => (
-												<div key={index} className={styles.columnItem}>
-													<Input
-														className={styles.columnItemInput}
-														value={col.name}
-														onChange={(e) =>
-															updateColumn(index, 'name', e.target.value)
-														}
-														placeholder="Column name"
-													/>
-													<Select
-														value={col.type}
-														onChange={(e) =>
-															updateColumn(index, 'type', e.target.value)
-														}
-													>
-														<option>INT</option>
-														<option>VARCHAR(255)</option>
-														<option>NVARCHAR(255)</option>
-														<option>TEXT</option>
-														<option>DATETIME</option>
-														<option>BIT</option>
-														<option>DECIMAL(18,2)</option>
-													</Select>
-													<Checkbox
-														label="PK"
-														checked={col.isPrimaryKey}
-														onChange={(e, data) =>
-															updateColumn(index, 'isPrimaryKey', data.checked)
-														}
-													/>
-													<Checkbox
-														label="FK"
-														checked={col.isForeignKey}
-														onChange={(e, data) =>
-															updateColumn(index, 'isForeignKey', data.checked)
-														}
-													/>
-													{col.isForeignKey && (
-														<Select
-															value={col.foreignKeyRef ? `${col.foreignKeyRef.schema}.${col.foreignKeyRef.table}.${col.foreignKeyRef.column}` : ''}
-															onChange={(e) => {
-																const [schema, table, column] = e.target.value.split('.');
-																updateColumn(index, 'foreignKeyRef', { schema, table, column });
-															}}
-														>
-															<option value="">Select reference...</option>
-															{currentDatabase?.schemas.flatMap((s) =>
-																s.tables.flatMap((t) =>
-																	t.columns
-																		.filter((c) => c.isPrimaryKey)
-																		.map((c) => (
-																			<option key={`${s.name}.${t.name}.${c.name}`} value={`${s.name}.${t.name}.${c.name}`}>
-																				{s.name}.{t.name}.{c.name}
-																			</option>
-																		))
-																)
-															)}
-														</Select>
-													)}
-													<Checkbox
-														label="Nullable"
-														checked={col.isNullable}
-														onChange={(e, data) =>
-															updateColumn(index, 'isNullable', data.checked)
-														}
-													/>
-													<Button
-														appearance="subtle"
-														onClick={() => removeColumn(index)}
-													>
-														Remove
-													</Button>
-												</div>
-											))}
-										</div>
-										<Button onClick={addColumn} appearance="primary">
-											Add Column
-										</Button>
-									</div>
-								</DialogContent>
-								<DialogActions>
-									<DialogTrigger disableButtonEnhancement>
-										<Button appearance="secondary">Cancel</Button>
-									</DialogTrigger>
-									<Button appearance="primary" onClick={handleAddTable}>
-										Create Table
-									</Button>
-								</DialogActions>
-							</DialogBody>
-						</DialogSurface>
-					</Dialog>
-
-					<Dialog
-						open={editTableDialogOpen}
-						onOpenChange={(_, data) => setEditTableDialogOpen(data.open)}
-					>
-						<DialogSurface>
-							<DialogBody>
-								<DialogTitle>Edit Table</DialogTitle>
-								<DialogContent>
-									<div className={styles.formGroup}>
-										<Label htmlFor="editTableSchema">Schema:</Label>
-										<Input
-											id="editTableSchema"
-											value={selectedSchema}
-											disabled
-										/>
-									</div>
-									<div className={styles.formGroup}>
-										<Label htmlFor="editTableName">Table Name:</Label>
-										<Input
-											id="editTableName"
-											value={tableName}
-											onChange={(e) => setTableName(e.target.value)}
-											placeholder="Users"
-										/>
-									</div>
-									<div className={styles.formGroup}>
-										<Label>Columns:</Label>
-										<div className={styles.columnsList}>
-											{columns.map((col, index) => (
-												<div key={index} className={styles.columnItem}>
-													<Input
-														className={styles.columnItemInput}
-														value={col.name}
-														onChange={(e) =>
-															updateColumn(index, 'name', e.target.value)
-														}
-														placeholder="Column name"
-													/>
-													<Select
-														value={col.type}
-														onChange={(e) =>
-															updateColumn(index, 'type', e.target.value)
-														}
-													>
-														<option>INT</option>
-														<option>VARCHAR(255)</option>
-														<option>NVARCHAR(255)</option>
-														<option>TEXT</option>
-														<option>DATETIME</option>
-														<option>BIT</option>
-														<option>DECIMAL(18,2)</option>
-													</Select>
-													<Checkbox
-														label="PK"
-														checked={col.isPrimaryKey}
-														onChange={(e, data) =>
-															updateColumn(index, 'isPrimaryKey', data.checked)
-														}
-													/>
-													<Checkbox
-														label="FK"
-														checked={col.isForeignKey}
-														onChange={(e, data) =>
-															updateColumn(index, 'isForeignKey', data.checked)
-														}
-													/>
-													{col.isForeignKey && (
-														<>
-															<Select
-																value={col.foreignKeyRef ? `${col.foreignKeyRef.schema}.${col.foreignKeyRef.table}.${col.foreignKeyRef.column}` : ''}
-																onChange={(e) => {
-																	const [schema, table, column] = e.target.value.split('.');
-																	updateColumn(index, 'foreignKeyRef', { schema, table, column });
-																}}
-															>
-																<option value="">Select reference...</option>
-																{currentDatabase?.schemas.flatMap((s) =>
-																	s.tables.flatMap((t) =>
-																		t.columns
-																			.filter((c) => c.isPrimaryKey)
-																			.map((c) => (
-																				<option key={`${s.name}.${t.name}.${c.name}`} value={`${s.name}.${t.name}.${c.name}`}>
-																					{s.name}.{t.name}.{c.name}
-																				</option>
-																			))
-																	)
-																)}
-															</Select>
-														</>
-													)}
-													<Checkbox
-														label="Nullable"
-														checked={col.isNullable}
-														onChange={(e, data) =>
-															updateColumn(index, 'isNullable', data.checked)
-														}
-													/>
-													<Button
-														appearance="subtle"
-														onClick={() => removeColumn(index)}
-													>
-														Remove
-													</Button>
-												</div>
-											))}
-										</div>
-										<Button onClick={addColumn} appearance="primary">
-											Add Column
-										</Button>
-									</div>
-								</DialogContent>
-								<DialogActions>
-									<Button appearance="secondary" onClick={() => setEditTableDialogOpen(false)}>
-										Cancel
-									</Button>
-									<Button appearance="primary" onClick={handleSaveEditedTable}>
-										Save Changes
-									</Button>
-								</DialogActions>
-							</DialogBody>
-						</DialogSurface>
-					</Dialog>
-
+				<Menu>
+				<MenuTrigger disableButtonEnhancement>
 					<Button
-						icon={isDarkMode ? <WeatherSunnyRegular /> : <WeatherMoonRegular />}
-						appearance="subtle"
-						onClick={toggleDarkMode}
-					/>
-
-					<div className={styles.dbInfo}>
-						{currentDatabase
-							? `${currentDatabase.name} (${currentDatabase.schemas.length} schemas)`
-							: 'No database'}
-					</div>
-				</div>
-
-				<div className={styles.canvas}>
-					<ReactFlow
-						nodes={nodes}
-						edges={edges}
-						onNodesChange={onNodesChange}
-						onEdgesChange={onEdgesChange}
-						onConnect={onConnect}
-						nodeTypes={nodeTypes}
-						fitView
+						icon={<TableRegular />}
+						appearance="secondary"
+						disabled={!currentDatabase || currentDatabase.schemas.length === 0}
 					>
-						<Background />
-						<Controls />
-						<MiniMap />
-					</ReactFlow>
+						Add Table
+					</Button>
+				</MenuTrigger>
+				<MenuPopover>
+					<MenuList>
+						{currentDatabase?.schemas.map((schema) => (
+							<MenuItem key={schema.name} onClick={() => handleAddTable(schema.name)}>
+								{schema.name}
+							</MenuItem>
+						))}
+					</MenuList>
+				</MenuPopover>
+			</Menu>
+				<Button
+					icon={<SaveRegular />}
+					appearance="primary"
+					onClick={handleSaveDatabase}
+					disabled={!currentDatabase}
+				>
+					Save
+				</Button>
+
+				<Button
+					icon={<DocumentTextRegular />}
+					appearance="secondary"
+					onClick={handlePreviewSQL}
+					disabled={!currentDatabase}
+				>
+					Preview SQL
+				</Button>
+
+				<div className={styles.dbInfo}>
+					{currentDatabase ? `${currentDatabase.name} (${currentDatabase.schemas.length} schemas)` : 'No database'}
 				</div>
 			</div>
-		</FluentProvider>
-	);
-};
+
+			<div className={styles.canvas}>
+				<ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} nodeTypes={nodeTypes} fitView>
+					<Background />
+					<Controls />
+					<MiniMap />
+				</ReactFlow>
+			</div>
+
+			{sidebarOpen && editingTable && (
+				<TableEditorSidebar
+					schemaName={editingTable.schema}
+					table={editingTable.table}
+					availableTables={getAllTablesForFKReferences()}
+					sidebarMode={sidebarMode}
+					onClose={() => setSidebarOpen(false)}
+					onSave={handleSaveTable}
+				/>
+			)}
+
+			<Dialog open={previewDialogOpen} onOpenChange={(_, data) => setPreviewDialogOpen(data.open)}>
+				<DialogSurface className={styles.previewDialog}>
+					<DialogBody>
+						<DialogTitle>SQL Preview</DialogTitle>
+						<DialogContent className={styles.previewContent}>
+							<div className={styles.sqlPreview}>{previewSQL}</div>
+						</DialogContent>
+						<DialogActions>
+							<Button appearance="secondary" onClick={() => setPreviewDialogOpen(false)}>
+								Close
+							</Button>
+						</DialogActions>
+					</DialogBody>
+				</DialogSurface>
+			</Dialog>
+		</div>
+	</FluentProvider>
+);};

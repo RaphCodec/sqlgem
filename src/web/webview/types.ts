@@ -18,14 +18,20 @@ export interface Table {
 export interface Column {
 	name: string;
 	type: string;
+	length?: number;
+	precision?: number;
+	scale?: number;
 	isPrimaryKey: boolean;
 	isForeignKey: boolean;
 	isNullable: boolean;
+	defaultValue?: string;
 	foreignKeyRef?: {
 		schema: string;
 		table: string;
 		column: string;
 	};
+	pkName?: string;
+	fkConstraintName?: string;
 }
 
 export interface VSCodeAPI {

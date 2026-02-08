@@ -25,11 +25,17 @@ interface Column {
 	isPrimaryKey: boolean;
 	isForeignKey: boolean;
 	isNullable: boolean;
+	defaultValue?: string;
 	foreignKeyRef?: {
 		schema: string;
 		table: string;
 		column: string;
 	};
+	pkName?: string;
+	fkConstraintName?: string;
+	length?: number;
+	precision?: number;
+	scale?: number;
 }
 
 let currentDatabase: Database | null = null;
@@ -73,6 +79,9 @@ export function activate(context: vscode.ExtensionContext) {
 					case 'createDatabase':
 						await handleCreateDatabase(message.name, panel);
 						break;
+					case 'loadDatabase':
+						await handleLoadDatabase(panel);
+						break;
 					case 'addSchema':
 						await handleAddSchema(message.name, panel);
 						break;
@@ -81,12 +90,19 @@ export function activate(context: vscode.ExtensionContext) {
 						break;
 					case 'updateTable':
 						await handleUpdateTable(message.schemaName, message.oldTableName, message.table, panel);
-						break;
-					case 'getDatabaseState':
+						break;				case 'saveDatabase':
+					await handleSaveDatabase(panel);
+					break;
+				case 'previewSQL':
+					handlePreviewSQL(panel);
+					break;					case 'getDatabaseState':
 						panel.webview.postMessage({
 							command: 'updateDatabase',
 							database: currentDatabase
 						});
+						break;
+					case 'showError':
+						vscode.window.showErrorMessage(message.text);
 						break;
 				}
 			},
@@ -113,6 +129,29 @@ export function activate(context: vscode.ExtensionContext) {
 		const dbFolderUri = vscode.Uri.joinPath(workspaceFolders[0].uri, name);
 		
 		try {
+			// Check if folder exists
+			let exists = true;
+			try {
+				await vscode.workspace.fs.stat(dbFolderUri);
+			} catch (e) {
+				exists = false;
+			}
+
+			if (exists) {
+				const choice = await vscode.window.showWarningMessage(
+					`Database folder "${name}" already exists. Overwrite?`,
+					'Overwrite',
+					'Cancel'
+				);
+				if (choice !== 'Overwrite') {
+					vscode.window.showInformationMessage('Create database cancelled');
+					return;
+				}
+
+				// Delete existing folder before creating
+				await vscode.workspace.fs.delete(dbFolderUri, { recursive: true, useTrash: false });
+			}
+
 			await vscode.workspace.fs.createDirectory(dbFolderUri);
 			
 			currentDatabase = {
@@ -134,6 +173,115 @@ export function activate(context: vscode.ExtensionContext) {
 			vscode.window.showInformationMessage(`Database "${name}" created with default schema "dbo"`);
 		} catch (error) {
 			vscode.window.showErrorMessage(`Failed to create database: ${error}`);
+		}
+	}
+
+	async function handleLoadDatabase(panel: vscode.WebviewPanel) {
+		const workspaceFolders = vscode.workspace.workspaceFolders;
+		if (!workspaceFolders) {
+			vscode.window.showErrorMessage('No workspace folder open');
+			return;
+		}
+
+		try {
+			const entries = await vscode.workspace.fs.readDirectory(workspaceFolders[0].uri);
+			const dirs = entries.filter(([name, type]) => type === vscode.FileType.Directory).map(([name]) => name);
+			if (dirs.length === 0) {
+				vscode.window.showInformationMessage('No folders found in workspace to load');
+				return;
+			}
+
+			const pick = await vscode.window.showQuickPick(dirs, { placeHolder: 'Select database folder to load' });
+			if (!pick) {
+				return;
+			}
+
+			const folderUri = vscode.Uri.joinPath(workspaceFolders[0].uri, pick);
+			const folderEntries = await vscode.workspace.fs.readDirectory(folderUri);
+			const sqlFiles = folderEntries.filter(([name, type]) => type === vscode.FileType.File && name.toLowerCase().endsWith('.sql')).map(([name]) => name);
+
+			let combinedSql = '';
+			for (const f of sqlFiles) {
+				const fileUri = vscode.Uri.joinPath(folderUri, f);
+				const bytes = await vscode.workspace.fs.readFile(fileUri);
+				combinedSql += new TextDecoder().decode(bytes) + '\n';
+			}
+
+			// Parse SQL content to build database structure
+			const db: Database = { name: pick, schemas: [] };
+
+			// Helper to ensure schema exists
+			const ensureSchema = (name: string) => {
+				let s = db.schemas.find(x => x.name === name);
+				if (!s) {
+					s = { name, tables: [] };
+					db.schemas.push(s);
+				}
+				return s;
+			};
+
+			// Parse CREATE TABLE blocks
+			const createTableRe = /CREATE\s+TABLE\s+\[([^\]]+)\]\.\[([^\]]+)\]\s*\(([\s\S]*?)\)\s*;/gi;
+			let ctMatch;
+			while ((ctMatch = createTableRe.exec(combinedSql)) !== null) {
+				const schemaName = ctMatch[1];
+				const tableName = ctMatch[2];
+				const colsBlock = ctMatch[3];
+				const schema = ensureSchema(schemaName);
+				const colsLines = colsBlock.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+				const columns: Table['columns'] = [];
+				for (let line of colsLines) {
+					// remove trailing comma
+					if (line.endsWith(',')) line = line.slice(0, -1);
+					const colMatch = /^\[([^\]]+)\]\s+([^\s]+)([\s\S]*)$/i.exec(line);
+					if (!colMatch) continue;
+					const colName = colMatch[1];
+					const colType = colMatch[2];
+					const rest = colMatch[3] || '';
+					const isPK = /PRIMARY\s+KEY/i.test(rest);
+					const isNotNull = /NOT\s+NULL/i.test(rest);
+					columns.push({
+						name: colName,
+						type: colType,
+						isPrimaryKey: isPK,
+						isForeignKey: false,
+						isNullable: !isNotNull,
+					});
+				}
+				schema.tables.push({ name: tableName, columns });
+			}
+
+			// Parse ALTER TABLE ... ADD CONSTRAINT <name> ... FOREIGN KEY ... REFERENCES ...
+			const fkRe = /ALTER\s+TABLE\s+\[([^\]]+)\]\.\[([^\]]+)\]\s+ADD\s+CONSTRAINT\s+\[?([^\]\s]+)\]?[\s\S]*?FOREIGN\s+KEY\s*\(\[([^\]]+)\]\)\s*REFERENCES\s+\[([^\]]+)\]\.\[([^\]]+)\]\s*\(\[([^\]]+)\]\)/gi;
+			let fkMatch;
+			while ((fkMatch = fkRe.exec(combinedSql)) !== null) {
+				const srcSchema = fkMatch[1];
+				const srcTable = fkMatch[2];
+				const constraintName = fkMatch[3];
+				const srcCol = fkMatch[4];
+				const refSchema = fkMatch[5];
+				const refTable = fkMatch[6];
+				const refCol = fkMatch[7];
+
+				const s = db.schemas.find(x => x.name === srcSchema);
+				if (!s) continue;
+				const t = s.tables.find(x => x.name === srcTable);
+				if (!t) continue;
+				const c = t.columns.find(x => x.name === srcCol);
+				if (!c) continue;
+				c.isForeignKey = true;
+				c.foreignKeyRef = { schema: refSchema, table: refTable, column: refCol };
+				if (constraintName) {
+					c.fkConstraintName = constraintName;
+				}
+			}
+
+			currentDatabase = db;
+
+			panel.webview.postMessage({ command: 'updateDatabase', database: currentDatabase });
+			vscode.window.showInformationMessage(`Loaded database folder "${pick}" (${sqlFiles.length} .sql files parsed)`);
+		} catch (error) {
+			vscode.window.showErrorMessage(`Failed to load database: ${error}`);
 		}
 	}
 
@@ -159,15 +307,11 @@ export function activate(context: vscode.ExtensionContext) {
 				tables: []
 			});
 
-			// Regenerate database.sql file
-			await writeDatabaseSQL(workspaceFolders[0].uri);
-			
+			// Update in-memory only (no file write)
 			panel.webview.postMessage({
 				command: 'updateDatabase',
 				database: currentDatabase
 			});
-			
-			vscode.window.showInformationMessage(`Schema "${name}" created`);
 		} catch (error) {
 			vscode.window.showErrorMessage(`Failed to create schema: ${error}`);
 		}
@@ -197,15 +341,11 @@ export function activate(context: vscode.ExtensionContext) {
 			console.log('Adding table:', table.name);
 			schema.tables.push(table);
 
-			// Regenerate entire database.sql file
-			await writeDatabaseSQL(workspaceFolders[0].uri);
-			
+			// Update in-memory only (no file write)
 			panel.webview.postMessage({
 				command: 'updateDatabase',
 				database: currentDatabase
 			});
-			
-			vscode.window.showInformationMessage(`Table "${table.name}" created in database.sql`);
 		} catch (error) {
 			console.error('Error creating table:', error);
 			vscode.window.showErrorMessage(`Failed to create table: ${error}`);
@@ -252,18 +392,13 @@ export function activate(context: vscode.ExtensionContext) {
 				}
 			}
 
-			// Update in-memory structure
+			// Update in-memory structure only (no file write)
 			schema.tables[tableIndex] = table;
-
-			// Regenerate entire database.sql file
-			await writeDatabaseSQL(workspaceFolders[0].uri);
 
 			panel.webview.postMessage({
 				command: 'updateDatabase',
 				database: currentDatabase
 			});
-
-			vscode.window.showInformationMessage(`Table "${table.name}" updated`);
 		} catch (error) {
 			console.error('Error updating table:', error);
 			vscode.window.showErrorMessage(`Failed to update table: ${error}`);
@@ -271,24 +406,39 @@ export function activate(context: vscode.ExtensionContext) {
 	}
 
 	function generateMSSQLTable(schemaName: string, table: Table): string {
-		const columns = table.columns.map(col => {
-			let columnDef = `    [${col.name}] ${col.type}`;
-			if (col.isPrimaryKey) {
-				columnDef += ' PRIMARY KEY';
+		// Build column definitions (without named PK constraint)
+		const columnsDefs = table.columns.map(col => {
+			// Format type with length/precision/scale if applicable
+			let typeStr = col.type;
+			if ((col.type === 'VARCHAR' || col.type === 'NVARCHAR') && col.length) {
+				typeStr = `${col.type}(${col.length})`;
+			} else if (col.type === 'DECIMAL' && col.precision) {
+				typeStr = col.scale !== undefined 
+					? `DECIMAL(${col.precision},${col.scale})` 
+					: `DECIMAL(${col.precision})`;
 			}
-			if (!col.isNullable) {
+			
+			let columnDef = `    [${col.name}] ${typeStr}`;
+			if (!col.isNullable || col.isPrimaryKey) {
 				columnDef += ' NOT NULL';
 			}
 			return columnDef;
 		}).join(',\n');
 
-		return `-- Table: ${schemaName}.${table.name}
--- Generated by SQLGem
+		let tableSql = `-- Table: ${schemaName}.${table.name}\n`;
+		tableSql += `-- Generated by SQLGem\n\n`;
+		tableSql += `CREATE TABLE [${schemaName}].[${table.name}] (\n${columnsDefs}`;
 
-CREATE TABLE [${schemaName}].[${table.name}] (
-${columns}
-);
-`;
+		// Add primary key constraint if present
+		const pkCols = table.columns.filter(c => c.isPrimaryKey).map(c => `[${c.name}]`);
+		if (pkCols.length > 0) {
+			const pkName = table.columns.find(c => c.isPrimaryKey && c.pkName)?.pkName || `PK_${table.name}`;
+			tableSql += `,\n    CONSTRAINT [${pkName}] PRIMARY KEY (${pkCols.join(', ')})`;
+		}
+
+		tableSql += `\n);\n`;
+
+		return tableSql;
 	}
 
 	function generateDatabaseSQL(): string {
@@ -334,7 +484,7 @@ ${columns}
 						const ref = col.foreignKeyRef;
 						allForeignKeys.push(
 							`ALTER TABLE [${schema.name}].[${table.name}]\n` +
-							`    ADD CONSTRAINT FK_${table.name}_${col.name}\n` +
+							`    ADD CONSTRAINT [${col.fkConstraintName || `FK_${table.name}_${col.name}`}]\n` +
 							`    FOREIGN KEY ([${col.name}])\n` +
 							`    REFERENCES [${ref.schema}].[${ref.table}]([${ref.column}]);`
 						);
@@ -353,6 +503,39 @@ ${columns}
 		}
 
 		return sql;
+	}
+
+	async function handleSaveDatabase(panel: vscode.WebviewPanel): Promise<void> {
+		if (!currentDatabase) {
+			vscode.window.showErrorMessage('No database to save');
+			return;
+		}
+
+		const workspaceFolders = vscode.workspace.workspaceFolders;
+		if (!workspaceFolders) {
+			vscode.window.showErrorMessage('No workspace folder open');
+			return;
+		}
+
+		try {
+			await writeDatabaseSQL(workspaceFolders[0].uri);
+			vscode.window.showInformationMessage(`Database "${currentDatabase.name}" saved successfully`);
+		} catch (error) {
+			vscode.window.showErrorMessage(`Failed to save database: ${error}`);
+		}
+	}
+
+	function handlePreviewSQL(panel: vscode.WebviewPanel): void {
+		if (!currentDatabase) {
+			vscode.window.showErrorMessage('No database to preview');
+			return;
+		}
+
+		const sqlContent = generateDatabaseSQL();
+		panel.webview.postMessage({
+			command: 'showSQLPreview',
+			sql: sqlContent
+		});
 	}
 
 	async function writeDatabaseSQL(workspaceUri: vscode.Uri): Promise<void> {

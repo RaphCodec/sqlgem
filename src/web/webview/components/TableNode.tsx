@@ -36,7 +36,7 @@ const useStyles = makeStyles({
 	},
 	editButton: {
 		minWidth: 'auto',
-		padding: `${tokens.spacingVerticalXS} ${tokens.spacingHorizontalXS}`,
+		padding: `${tokens.spacingVerticalXXS} ${tokens.spacingHorizontalXXS}`,
 	},
 	columns: {
 		padding: `${tokens.spacingVerticalS} 0`,
@@ -49,10 +49,6 @@ const useStyles = makeStyles({
 		color: tokens.colorNeutralForeground1,
 		alignItems: 'center',
 		position: 'relative',
-	},
-	columnRowPK: {
-		fontWeight: tokens.fontWeightSemibold,
-		color: tokens.colorPaletteDarkOrangeForeground1,
 	},
 	columnName: {
 		display: 'flex',
@@ -75,6 +71,16 @@ const TableNode: React.FC<TableNodeProps> = ({ data }) => {
 	const { schemaName, table, onEdit } = data;
 	const tableId = `${schemaName}.${table.name}`;
 
+	const getFullType = (col: any): string => {
+		const baseType = col.type;
+		if (baseType === 'VARCHAR' || baseType === 'NVARCHAR') {
+			return `${baseType}(${col.length || 255})`;
+		} else if (baseType === 'DECIMAL') {
+			return `DECIMAL(${col.precision || 18},${col.scale || 2})`;
+		}
+		return baseType;
+	};
+
 	return (
 		<div className={styles.tableNode}>
 			<div className={styles.header}>
@@ -96,11 +102,7 @@ const TableNode: React.FC<TableNodeProps> = ({ data }) => {
 			</div>
 			<div className={styles.columns}>
 				{table.columns.map((col, index) => (
-					<div
-						key={index}
-						className={`${styles.columnRow} ${col.isPrimaryKey ? styles.columnRowPK : ''}`}
-					>
-						{/* Target handle on the left for incoming FK connections */}
+					<div key={index} className={styles.columnRow}>
 						<Handle
 							type="target"
 							position={Position.Left}
@@ -112,10 +114,9 @@ const TableNode: React.FC<TableNodeProps> = ({ data }) => {
 							{col.name}
 						</span>
 						<span className={styles.columnType}>
-							{col.type}
+							{getFullType(col)}
 							{!col.isNullable && ' NOT NULL'}
 						</span>
-						{/* Source handle on the right for outgoing FK connections */}
 						<Handle
 							type="source"
 							position={Position.Right}
