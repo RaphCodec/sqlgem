@@ -31,6 +31,7 @@ import {
 	WeatherSunnyRegular,
 	SaveRegular,
 	DocumentTextRegular,
+	OrganizationRegular,
 } from '@fluentui/react-icons';
 import {
 	ReactFlow,
@@ -43,11 +44,13 @@ import {
 	useNodesState,
 	useEdgesState,
 	addEdge,
+	useReactFlow,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { Database, Schema, Table, Column, VSCodeAPI } from './types';
 import TableNode from './components/TableNode';
 import { TableEditorSidebar } from './components/TableEditorSidebar';
+import { calculateAutoLayout } from './utils/autoLayout';
 
 declare const acquireVsCodeApi: () => VSCodeAPI;
 const vscode = acquireVsCodeApi();
@@ -122,6 +125,7 @@ const nodeTypes = {
 
 export const App: React.FC = () => {
 	const styles = useStyles();
+	const { fitView } = useReactFlow();
 	const [isDarkMode, setIsDarkMode] = useState(() => {
 		return localStorage.getItem('sqlgem-dark-mode') === 'true';
 	});
@@ -307,6 +311,25 @@ export const App: React.FC = () => {
 		}
 	};
 
+	const handleAutoLayout = useCallback(() => {
+		if (!currentDatabase || nodes.length === 0) return;
+
+		// Calculate new positions using Dagre
+		const layoutedNodes = calculateAutoLayout(nodes, edges, {
+			direction: 'LR',
+			nodeSep: 80,
+			rankSep: 150,
+		});
+
+		// Update nodes with new positions
+		setNodes(layoutedNodes);
+
+		// Fit view after layout with padding
+		setTimeout(() => {
+			fitView({ padding: 0.2, duration: 300 });
+		}, 50);
+	}, [currentDatabase, nodes, edges, setNodes, fitView]);
+
 	return (
 		<FluentProvider theme={isDarkMode ? webDarkTheme : webLightTheme}>
 			<div className={styles.app}>
@@ -410,6 +433,17 @@ export const App: React.FC = () => {
 					</MenuList>
 				</MenuPopover>
 			</Menu>
+
+				<Button
+					icon={<OrganizationRegular />}
+					appearance="secondary"
+					onClick={handleAutoLayout}
+					disabled={!currentDatabase || nodes.length === 0}
+					title="Auto Layout - Arrange tables using Dagre algorithm"
+				>
+					Auto Layout
+				</Button>
+
 				<Button
 					icon={<SaveRegular />}
 					appearance="primary"

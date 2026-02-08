@@ -87,11 +87,28 @@ const useStyles = makeStyles({
 	},
 	columnRow: {
 		display: 'flex',
-		alignItems: 'center',
+		flexDirection: 'column',
 		gap: tokens.spacingHorizontalS,
 		padding: tokens.spacingVerticalS,
 		border: `1px solid ${tokens.colorNeutralStroke2}`,
 		borderRadius: tokens.borderRadiusMedium,
+	},
+	columnRowMain: {
+		display: 'flex',
+		alignItems: 'center',
+		gap: tokens.spacingHorizontalS,
+	},
+	columnDetails: {
+		display: 'flex',
+		flexDirection: 'column',
+		gap: tokens.spacingVerticalS,
+		paddingLeft: tokens.spacingHorizontalM,
+		marginTop: tokens.spacingVerticalS,
+	},
+	constraintRow: {
+		display: 'flex',
+		alignItems: 'center',
+		gap: tokens.spacingHorizontalS,
 	},
 	columnNameInput: {
 		flex: '1 1 150px',
@@ -202,11 +219,21 @@ export const TableEditorSidebar: React.FC<TableEditorSidebarProps> = ({
 		return ['VARCHAR', 'NVARCHAR', 'DECIMAL', 'NUMERIC', 'CHAR', 'NCHAR'].includes(type);
 	};
 
-	const availablePKColumns = availableTables.flatMap(t =>
-		t.columns
-			.filter(c => c.isPrimaryKey)
-			.map(c => ({ schema: t.schema, table: t.table, column: c.name }))
-	);
+	// Include columns from the current table being edited (for self-referencing FKs)
+	// and from all other tables in the database
+	const currentTablePKs = localTable.columns
+		.filter(c => c.isPrimaryKey)
+		.map(c => ({ schema: localSchemaName, table: localTable.name, column: c.name }));
+	
+	const otherTablePKs = availableTables
+		.filter(t => !(t.schema === localSchemaName && t.table === localTable.name))
+		.flatMap(t =>
+			t.columns
+				.filter(c => c.isPrimaryKey)
+				.map(c => ({ schema: t.schema, table: t.table, column: c.name }))
+		);
+	
+	const availablePKColumns = [...currentTablePKs, ...otherTablePKs];
 
 	const selectedColumn = selectedColumnIndex !== null ? localTable.columns[selectedColumnIndex] : null;
 
@@ -263,64 +290,121 @@ export const TableEditorSidebar: React.FC<TableEditorSidebarProps> = ({
 						<div className={styles.columnList}>
 							{localTable.columns.map((col, index) => (
 								<div key={index} className={styles.columnRow}>
-									<Input
-										className={styles.columnNameInput}
-										value={col.name}
-										onChange={(e) => updateColumn(index, 'name', e.target.value)}
-										placeholder="Column name"
-										size="small"
-									/>
-									<Select
-										className={styles.columnTypeSelect}
-										value={col.type}
-										onChange={(e) => updateColumn(index, 'type', e.target.value)}
-										size="small"
-									>
-										<option>INT</option>
-										<option>BIGINT</option>
-										<option>SMALLINT</option>
-										<option>TINYINT</option>
-										<option>VARCHAR</option>
-										<option>NVARCHAR</option>
-										<option>CHAR</option>
-										<option>NCHAR</option>
-										<option>TEXT</option>
-										<option>NTEXT</option>
-										<option>DATETIME</option>
-										<option>DATETIME2</option>
-										<option>DATE</option>
-										<option>TIME</option>
-										<option>BIT</option>
-										<option>DECIMAL</option>
-										<option>NUMERIC</option>
-										<option>FLOAT</option>
-										<option>REAL</option>
-										<option>MONEY</option>
-										<option>UNIQUEIDENTIFIER</option>
-									</Select>
-									<div className={styles.columnActions}>
-										{needsTypeConfig(col.type) && (
+									<div className={styles.columnRowMain}>
+										<Input
+											className={styles.columnNameInput}
+											value={col.name}
+											onChange={(e) => updateColumn(index, 'name', e.target.value)}
+											placeholder="Column name"
+											size="small"
+										/>
+										<Select
+											className={styles.columnTypeSelect}
+											value={col.type}
+											onChange={(e) => updateColumn(index, 'type', e.target.value)}
+											size="small"
+										>
+											<option>INT</option>
+											<option>BIGINT</option>
+											<option>SMALLINT</option>
+											<option>TINYINT</option>
+											<option>VARCHAR</option>
+											<option>NVARCHAR</option>
+											<option>CHAR</option>
+											<option>NCHAR</option>
+											<option>TEXT</option>
+											<option>NTEXT</option>
+											<option>DATETIME</option>
+											<option>DATETIME2</option>
+											<option>DATE</option>
+											<option>TIME</option>
+											<option>BIT</option>
+											<option>DECIMAL</option>
+											<option>NUMERIC</option>
+											<option>FLOAT</option>
+											<option>REAL</option>
+											<option>MONEY</option>
+											<option>UNIQUEIDENTIFIER</option>
+										</Select>
+										<div className={styles.columnActions}>
+											{needsTypeConfig(col.type) && (
+												<Button
+													appearance="subtle"
+													icon={<MoreVerticalRegular />}
+													onClick={() => openTypeConfig(index)}
+													size="small"
+													title="Configure type parameters"
+												/>
+											)}
+											<Checkbox
+												checked={col.isPrimaryKey}
+												onChange={(e, data) => updateColumn(index, 'isPrimaryKey', data.checked)}
+												label="PK"
+											/>
+											<Checkbox
+												checked={col.isForeignKey}
+												onChange={(e, data) => updateColumn(index, 'isForeignKey', data.checked)}
+												label="FK"
+											/>
 											<Button
 												appearance="subtle"
-												icon={<MoreVerticalRegular />}
-												onClick={() => openTypeConfig(index)}
+												icon={<DeleteRegular />}
+												onClick={() => removeColumn(index)}
 												size="small"
-												title="Configure type parameters"
+												title="Remove column"
 											/>
-										)}
-										<Checkbox
-											checked={col.isPrimaryKey}
-											onChange={(e, data) => updateColumn(index, 'isPrimaryKey', data.checked)}
-											label="PK"
-										/>
-										<Button
-											appearance="subtle"
-											icon={<DeleteRegular />}
-											onClick={() => removeColumn(index)}
-											size="small"
-											title="Remove column"
-										/>
+										</div>
 									</div>
+
+									{(col.isPrimaryKey || col.isForeignKey) && (
+										<div className={styles.columnDetails}>
+											{col.isPrimaryKey && (
+												<div className={styles.constraintRow}>
+													<Label size="small" style={{ width: '100px' }}>PK Name:</Label>
+													<Input
+														value={col.pkName || ''}
+														onChange={(e) => updateColumn(index, 'pkName', e.target.value)}
+														placeholder={`PK_${localTable.name}_${col.name}`}
+														size="small"
+														style={{ flex: 1 }}
+													/>
+												</div>
+											)}
+											{col.isForeignKey && (
+												<>
+													<div className={styles.constraintRow}>
+														<Label size="small" style={{ width: '100px' }}>References:</Label>
+														<Select
+															value={col.foreignKeyRef ? `${col.foreignKeyRef.schema}.${col.foreignKeyRef.table}.${col.foreignKeyRef.column}` : ''}
+															onChange={(e) => {
+																const [s, t, c] = e.target.value.split('.');
+																updateColumn(index, 'foreignKeyRef', { schema: s, table: t, column: c });
+															}}
+															size="small"
+															style={{ flex: 1 }}
+														>
+															<option value="">Select reference...</option>
+															{availablePKColumns.map((pk) => (
+																<option key={`${pk.schema}.${pk.table}.${pk.column}`} value={`${pk.schema}.${pk.table}.${pk.column}`}>
+																	{pk.schema}.{pk.table}.{pk.column}
+																</option>
+															))}
+														</Select>
+													</div>
+													<div className={styles.constraintRow}>
+														<Label size="small" style={{ width: '100px' }}>FK Name:</Label>
+														<Input
+															value={col.fkConstraintName || ''}
+															onChange={(e) => updateColumn(index, 'fkConstraintName', e.target.value)}
+															placeholder={`FK_${localTable.name}_${col.name}`}
+															size="small"
+															style={{ flex: 1 }}
+														/>
+													</div>
+												</>
+											)}
+										</div>
+									)}
 								</div>
 							))}
 						</div>
