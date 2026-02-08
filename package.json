@@ -16,6 +16,10 @@
       {
         "command": "sqlgem.helloWorld",
         "title": "Hello World"
+      },
+      {
+        "command": "sqlgem.showWindow",
+        "title": "Show SQLGem Window"
       }
     ]
   },
