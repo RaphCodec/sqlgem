@@ -1,7 +1,22 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Handle, Position } from '@xyflow/react';
-import { makeStyles, tokens, Button } from '@fluentui/react-components';
-import { KeyRegular, EditRegular } from '@fluentui/react-icons';
+import { 
+	makeStyles, 
+	tokens, 
+	Button, 
+	Menu, 
+	MenuTrigger, 
+	MenuPopover, 
+	MenuList, 
+	MenuItem,
+	Dialog,
+	DialogSurface,
+	DialogTitle,
+	DialogBody,
+	DialogContent,
+	DialogActions
+} from '@fluentui/react-components';
+import { KeyRegular, EditRegular, MoreVerticalRegular, DeleteRegular } from '@fluentui/react-icons';
 import { Table } from '../types';
 
 interface TableNodeProps {
@@ -9,6 +24,7 @@ interface TableNodeProps {
 		schemaName: string;
 		table: Table;
 		onEdit?: (schemaName: string, table: Table) => void;
+		onDelete?: (schemaName: string, tableName: string) => void;
 	};
 }
 
@@ -33,6 +49,13 @@ const useStyles = makeStyles({
 	},
 	headerTitle: {
 		flex: 1,
+		overflow: 'hidden',
+		textOverflow: 'ellipsis',
+		whiteSpace: 'nowrap',
+	},
+	headerActions: {
+		display: 'flex',
+		gap: tokens.spacingHorizontalXXS,
 	},
 	editButton: {
 		minWidth: 'auto',
@@ -68,8 +91,9 @@ const useStyles = makeStyles({
 
 const TableNode: React.FC<TableNodeProps> = ({ data }) => {
 	const styles = useStyles();
-	const { schemaName, table, onEdit } = data;
+	const { schemaName, table, onEdit, onDelete } = data;
 	const tableId = `${schemaName}.${table.name}`;
+	const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
 	const getFullType = (col: any): string => {
 		const baseType = col.type;
@@ -82,23 +106,65 @@ const TableNode: React.FC<TableNodeProps> = ({ data }) => {
 	};
 
 	return (
+		<>
 		<div className={styles.tableNode}>
 			<div className={styles.header}>
 				<div className={styles.headerTitle}>
 					{schemaName}.{table.name}
 				</div>
-				{onEdit && (
-					<Button
-						appearance="transparent"
-						icon={<EditRegular />}
-						onClick={(e) => {
-							e.stopPropagation();
-							onEdit(schemaName, table);
-						}}
-						className={styles.editButton}
-						size="small"
-					/>
-				)}
+				<div className={styles.headerActions}>
+					{onEdit && (
+						<Button
+							appearance="transparent"
+							icon={<EditRegular />}
+							onClick={(e) => {
+								e.stopPropagation();
+								onEdit(schemaName, table);
+							}}
+							className={styles.editButton}
+							size="small"
+						/>
+					)}
+					{(onEdit || onDelete) && (
+						<Menu>
+							<MenuTrigger disableButtonEnhancement>
+								<Button
+									appearance="transparent"
+									icon={<MoreVerticalRegular />}
+									onClick={(e) => e.stopPropagation()}
+									className={styles.editButton}
+									size="small"
+								/>
+							</MenuTrigger>
+							<MenuPopover>
+								<MenuList>
+									{onEdit && (
+										<MenuItem
+											icon={<EditRegular />}
+											onClick={(e) => {
+												e.stopPropagation();
+												onEdit(schemaName, table);
+											}}
+										>
+											Edit Table
+										</MenuItem>
+									)}
+									{onDelete && (
+										<MenuItem
+											icon={<DeleteRegular />}
+											onClick={(e) => {
+												e.stopPropagation();
+									setDeleteDialogOpen(true);
+											}}
+										>
+											Delete Table
+										</MenuItem>
+									)}
+								</MenuList>
+							</MenuPopover>
+						</Menu>
+					)}
+				</div>
 			</div>
 			<div className={styles.columns}>
 				{table.columns.map((col, index) => (
@@ -127,6 +193,34 @@ const TableNode: React.FC<TableNodeProps> = ({ data }) => {
 				))}
 			</div>
 		</div>
+
+			<Dialog open={deleteDialogOpen} onOpenChange={(_, data) => setDeleteDialogOpen(data.open)}>
+				<DialogSurface>
+					<DialogBody>
+						<DialogTitle>Delete Table</DialogTitle>
+						<DialogContent>
+							Are you sure you want to delete table {table.name}?
+						</DialogContent>
+						<DialogActions>
+							<Button appearance="secondary" onClick={() => setDeleteDialogOpen(false)}>
+								Cancel
+							</Button>
+							<Button
+								appearance="primary"
+								onClick={() => {
+									if (onDelete) {
+										onDelete(schemaName, table.name);
+									}
+									setDeleteDialogOpen(false);
+								}}
+							>
+								Delete
+							</Button>
+						</DialogActions>
+					</DialogBody>
+				</DialogSurface>
+			</Dialog>
+		</>
 	);
 };
 

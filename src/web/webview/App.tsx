@@ -185,6 +185,17 @@ export const App: React.FC = () => {
 		}
 	}, [sidebarMode]);
 
+	const handleDeleteTable = useCallback((schemaName: string, tableName: string) => {
+		vscode.postMessage({
+			command: 'deleteTable',
+			schemaName,
+			tableName,
+		});
+		// Close sidebar and clear editing state
+		setSidebarOpen(false);
+		setEditingTable(null);
+	}, []);
+
 	const getAllTablesForFKReferences = useCallback(() => {
 		if (!currentDatabase) return [];
 		return currentDatabase.schemas
@@ -233,6 +244,7 @@ export const App: React.FC = () => {
 						schemaName: schema.name,
 						table: table,
 						onEdit: handleEditTable,
+						onDelete: handleDeleteTable,
 					},
 				});
 
@@ -241,6 +253,8 @@ export const App: React.FC = () => {
 					if (col.isForeignKey && col.foreignKeyRef && col.foreignKeyRef.schema && col.foreignKeyRef.table && col.foreignKeyRef.column) {
 						const sourceId = `${schema.name}.${table.name}`;
 						const targetId = `${col.foreignKeyRef.schema}.${col.foreignKeyRef.table}`;
+						const isSelfReference = sourceId === targetId;
+						
 						newEdges.push({
 							id: `${sourceId}-${col.name}-${targetId}`,
 							source: sourceId,
@@ -248,9 +262,18 @@ export const App: React.FC = () => {
 							sourceHandle: `${sourceId}-${col.name}-source`,
 							targetHandle: `${targetId}-${col.foreignKeyRef.column}-target`,
 							label: col.name,
-							type: 'smoothstep',
+							type: isSelfReference ? 'default' : 'smoothstep',
 							animated: true,
-							style: { stroke: '#007acc', strokeWidth: 2 },
+							style: isSelfReference 
+								? { stroke: '#007acc', strokeWidth: 2, strokeDasharray: '5,5' }
+								: { stroke: '#007acc', strokeWidth: 2 },
+							...(isSelfReference && {
+								// Loop back with offset for self-references
+								markerEnd: {
+									type: 'arrowclosed',
+									color: '#007acc',
+								},
+							}),
 						});
 					}
 				});
@@ -483,6 +506,7 @@ export const App: React.FC = () => {
 					sidebarMode={sidebarMode}
 					onClose={() => setSidebarOpen(false)}
 					onSave={handleSaveTable}
+					onDelete={handleDeleteTable}
 				/>
 			)}
 

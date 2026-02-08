@@ -90,12 +90,16 @@ export function activate(context: vscode.ExtensionContext) {
 						break;
 					case 'updateTable':
 						await handleUpdateTable(message.schemaName, message.oldTableName, message.table, panel);
-						break;				case 'saveDatabase':
-					await handleSaveDatabase(panel);
-					break;
-				case 'previewSQL':
-					handlePreviewSQL(panel);
-					break;					case 'getDatabaseState':
+						break;
+					case 'deleteTable':
+						await handleDeleteTable(message.schemaName, message.tableName, panel);
+						break;
+					case 'saveDatabase':
+						await handleSaveDatabase(panel);
+						break;
+					case 'previewSQL':
+						handlePreviewSQL(panel);
+						break;					case 'getDatabaseState':
 						panel.webview.postMessage({
 							command: 'updateDatabase',
 							database: currentDatabase
@@ -403,6 +407,52 @@ export function activate(context: vscode.ExtensionContext) {
 			console.error('Error updating table:', error);
 			vscode.window.showErrorMessage(`Failed to update table: ${error}`);
 		}
+	}
+
+	async function handleDeleteTable(schemaName: string, tableName: string, panel: vscode.WebviewPanel) {
+		if (!currentDatabase) {
+			vscode.window.showErrorMessage('No database loaded');
+			return;
+		}
+
+		const schema = currentDatabase.schemas.find(s => s.name === schemaName);
+		if (!schema) {
+			vscode.window.showErrorMessage(`Schema "${schemaName}" not found`);
+			return;
+		}
+
+		const tableIndex = schema.tables.findIndex(t => t.name === tableName);
+		if (tableIndex === -1) {
+			vscode.window.showErrorMessage(`Table "${tableName}" not found`);
+			return;
+		}
+
+		// Clean up all foreign key references to this table in other tables
+		currentDatabase.schemas.forEach(s => {
+			s.tables.forEach(t => {
+				// Remove FK columns that reference the deleted table
+				t.columns.forEach(col => {
+					if (col.isForeignKey && 
+						col.foreignKeyRef && 
+						col.foreignKeyRef.schema === schemaName && 
+						col.foreignKeyRef.table === tableName) {
+						// Clear the FK reference
+						col.isForeignKey = false;
+						col.foreignKeyRef = undefined;
+						col.fkConstraintName = undefined;
+					}
+				});
+			});
+		});
+
+		// Remove table from schema (in-memory only, no file write)
+		schema.tables.splice(tableIndex, 1);
+
+		// Send updated database to webview
+		panel.webview.postMessage({
+			command: 'updateDatabase',
+			database: currentDatabase,
+		});
 	}
 
 	function generateMSSQLTable(schemaName: string, table: Table): string {

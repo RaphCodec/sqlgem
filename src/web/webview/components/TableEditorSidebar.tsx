@@ -33,6 +33,7 @@ interface TableEditorSidebarProps {
 	sidebarMode: 'add' | 'edit';
 	onClose: () => void;
 	onSave: (schemaName: string, oldTableName: string, updatedTable: Table) => void;
+	onDelete?: (schemaName: string, tableName: string) => void;
 }
 
 const useStyles = makeStyles({
@@ -152,12 +153,14 @@ export const TableEditorSidebar: React.FC<TableEditorSidebarProps> = ({
 	sidebarMode,
 	onClose,
 	onSave,
+	onDelete,
 }) => {
 	const styles = useStyles();
 	const [localSchemaName, setLocalSchemaName] = useState(schemaName);
 	const [localTable, setLocalTable] = useState<Table>({ ...table, columns: [...table.columns] });
 	const [originalTableName] = useState(table.name);
 	const [typeConfigDialogOpen, setTypeConfigDialogOpen] = useState(false);
+	const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 	const [selectedColumnIndex, setSelectedColumnIndex] = useState<number | null>(null);
 	const [selectedTab, setSelectedTab] = useState<string>('columns');
 
@@ -204,6 +207,18 @@ export const TableEditorSidebar: React.FC<TableEditorSidebarProps> = ({
 	const handleSave = () => {
 		onSave(localSchemaName, originalTableName, localTable);
 		onClose();
+	};
+
+	const handleDelete = () => {
+		setDeleteDialogOpen(true);
+	};
+
+	const confirmDelete = () => {
+		if (onDelete) {
+			onDelete(localSchemaName, originalTableName);
+			onClose();
+		}
+		setDeleteDialogOpen(false);
 	};
 
 	const handleTabSelect = (event: SelectTabEvent, data: SelectTabData) => {
@@ -463,6 +478,11 @@ export const TableEditorSidebar: React.FC<TableEditorSidebarProps> = ({
 				<Button appearance="secondary" onClick={onClose}>
 					Cancel
 				</Button>
+				{sidebarMode === 'edit' && onDelete && (
+					<Button appearance="secondary" icon={<DeleteRegular />} onClick={handleDelete}>
+						Delete Table
+					</Button>
+				)}
 				<Button appearance="primary" onClick={handleSave}>
 					Save Changes
 				</Button>
@@ -532,6 +552,25 @@ export const TableEditorSidebar: React.FC<TableEditorSidebarProps> = ({
 					</DialogBody>
 				</DialogSurface>
 			</Dialog>
+
+		<Dialog open={deleteDialogOpen} onOpenChange={(_, data) => setDeleteDialogOpen(data.open)}>
+			<DialogSurface>
+				<DialogBody>
+					<DialogTitle>Delete Table</DialogTitle>
+					<DialogContent>
+						Are you sure you want to delete table {localTable.name}? This will also remove all foreign key references to this table.
+					</DialogContent>
+					<DialogActions>
+						<Button appearance="secondary" onClick={() => setDeleteDialogOpen(false)}>
+							Cancel
+						</Button>
+						<Button appearance="primary" onClick={confirmDelete}>
+							Delete
+						</Button>
+					</DialogActions>
+				</DialogBody>
+			</DialogSurface>
+		</Dialog>
 		</div>
 	);
 };
