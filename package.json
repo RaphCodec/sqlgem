@@ -19,7 +19,7 @@
       },
       {
         "command": "sqlgem.showWindow",
-        "title": "Show SQLGem Window"
+        "title": "SQLGem: Open ER Diagram"
       }
     ]
   },
