@@ -44,7 +44,13 @@ const webExtensionConfig = {
 			test: /\.ts$/,
 			exclude: /node_modules/,
 			use: [{
-				loader: 'ts-loader'
+				loader: 'ts-loader',
+				options: {
+					compilerOptions: {
+						module: 'esnext',
+						moduleResolution: 'bundler',
+					}
+				}
 			}]
 		}]
 	},
@@ -68,4 +74,54 @@ const webExtensionConfig = {
 	},
 };
 
-module.exports = [ webExtensionConfig ];
+/** @type WebpackConfig */
+const webviewConfig = {
+	mode: 'none',
+	target: 'web',
+	entry: './src/web/webview/index.tsx',
+	output: {
+		filename: 'webview.js',
+		path: path.join(__dirname, './dist/web'),
+		libraryTarget: 'umd',
+	},
+	resolve: {
+		extensions: ['.ts', '.tsx', '.js', '.jsx'],
+		fallback: {
+			'path': false,
+			'fs': false,
+		}
+	},
+	module: {
+		rules: [
+			{
+				test: /\.tsx?$/,
+				exclude: /node_modules/,
+				use: [{
+					loader: 'ts-loader',
+					options: {
+						compilerOptions: {
+							jsx: 'react-jsx',
+							module: 'esnext',
+							moduleResolution: 'bundler',
+						}
+					}
+				}]
+			},
+			{
+				test: /\.css$/,
+				use: ['style-loader', 'css-loader']
+			}
+		]
+	},
+	plugins: [
+		new webpack.ProvidePlugin({
+			process: 'process/browser',
+		}),
+	],
+	performance: {
+		hints: false
+	},
+	devtool: 'nosources-source-map',
+};
+
+module.exports = [ webExtensionConfig, webviewConfig ];
