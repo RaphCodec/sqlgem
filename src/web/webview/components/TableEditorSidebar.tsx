@@ -295,9 +295,11 @@ export const TableEditorSidebar: React.FC<TableEditorSidebarProps> = ({
 				{selectedTab === 'columns' && (
 					<div>
 						<Button
+							appearance="subtle"
 							icon={<AddRegular />}
 							onClick={addColumn}
 							className={styles.addButton}
+							size="small"
 						>
 							Add Column
 						</Button>
@@ -475,15 +477,15 @@ export const TableEditorSidebar: React.FC<TableEditorSidebarProps> = ({
 			</div>
 
 			<div className={styles.footer}>
-				<Button appearance="secondary" onClick={onClose}>
+				<Button appearance="subtle" onClick={onClose} size="small">
 					Cancel
 				</Button>
 				{sidebarMode === 'edit' && onDelete && (
-					<Button appearance="secondary" icon={<DeleteRegular />} onClick={handleDelete}>
+					<Button appearance="subtle" icon={<DeleteRegular />} onClick={handleDelete} size="small">
 						Delete Table
 					</Button>
 				)}
-				<Button appearance="primary" onClick={handleSave}>
+				<Button appearance="primary" onClick={handleSave} size="small">
 					Save Changes
 				</Button>
 			</div>
@@ -545,7 +547,7 @@ export const TableEditorSidebar: React.FC<TableEditorSidebarProps> = ({
 							)}
 						</DialogContent>
 						<DialogActions>
-							<Button appearance="secondary" onClick={() => setTypeConfigDialogOpen(false)}>
+						<Button appearance="subtle" onClick={() => setTypeConfigDialogOpen(false)} size="small">
 								Close
 							</Button>
 						</DialogActions>
@@ -561,10 +563,10 @@ export const TableEditorSidebar: React.FC<TableEditorSidebarProps> = ({
 						Are you sure you want to delete table {localTable.name}? This will also remove all foreign key references to this table.
 					</DialogContent>
 					<DialogActions>
-						<Button appearance="secondary" onClick={() => setDeleteDialogOpen(false)}>
-							Cancel
-						</Button>
-						<Button appearance="primary" onClick={confirmDelete}>
+					<Button appearance="subtle" onClick={() => setDeleteDialogOpen(false)} size="small">
+						Cancel
+					</Button>
+					<Button appearance="primary" onClick={confirmDelete} size="small">
 							Delete
 						</Button>
 					</DialogActions>

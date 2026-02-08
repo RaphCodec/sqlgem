@@ -64,8 +64,8 @@ const useStyles = makeStyles({
 	},
 	toolbar: {
 		display: 'flex',
-		gap: tokens.spacingHorizontalS,
-		padding: tokens.spacingVerticalM,
+		gap: tokens.spacingHorizontalXS,
+		padding: `${tokens.spacingVerticalS} ${tokens.spacingHorizontalM}`,
 		backgroundColor: tokens.colorNeutralBackground1,
 		borderBottom: `1px solid ${tokens.colorNeutralStroke1}`,
 		alignItems: 'center',
@@ -149,6 +149,46 @@ export const App: React.FC = () => {
 	// Form states
 	const [dbName, setDbName] = useState('');
 	const [schemaName, setSchemaName] = useState('');
+
+	// Apply theme-aware styles for React Flow controls
+	useEffect(() => {
+		const styleId = 'react-flow-theme-styles';
+		let styleElement = document.getElementById(styleId) as HTMLStyleElement;
+		
+		if (!styleElement) {
+			styleElement = document.createElement('style');
+			styleElement.id = styleId;
+			document.head.appendChild(styleElement);
+		}
+
+		const styles = isDarkMode ? `
+			.react-flow__controls button {
+				background-color: #1e1e1e !important;
+				border-color: #3e3e3e !important;
+				color: #fff !important;
+			}
+			.react-flow__controls button:hover {
+				background-color: #2a2a2a !important;
+			}
+			.react-flow__controls button path {
+				fill: #fff !important;
+			}
+		` : `
+			.react-flow__controls button {
+				background-color: #fff !important;
+				border-color: #ddd !important;
+				color: #333 !important;
+			}
+			.react-flow__controls button:hover {
+				background-color: #f5f5f5 !important;
+			}
+			.react-flow__controls button path {
+				fill: #333 !important;
+			}
+		`;
+
+		styleElement.textContent = styles;
+	}, [isDarkMode]);
 
 	const handleEditTable = useCallback((schemaName: string, table: Table) => {
 		setEditingTable({ schema: schemaName, table });
@@ -359,7 +399,7 @@ export const App: React.FC = () => {
 				<div className={styles.toolbar}>
 					<Dialog open={newDbDialogOpen} onOpenChange={(_, data) => setNewDbDialogOpen(data.open)}>
 						<DialogTrigger disableButtonEnhancement>
-							<Button icon={<DatabaseRegular />} appearance="primary">
+							<Button icon={<DatabaseRegular />} appearance="subtle" size="small">
 								New Database Diagram
 							</Button>
 						</DialogTrigger>
@@ -379,9 +419,9 @@ export const App: React.FC = () => {
 								</DialogContent>
 								<DialogActions>
 									<DialogTrigger disableButtonEnhancement>
-										<Button appearance="secondary">Cancel</Button>
+										<Button appearance="subtle" size="small">Cancel</Button>
 									</DialogTrigger>
-									<Button appearance="primary" onClick={handleCreateDatabase}>
+									<Button appearance="subtle" size="small" onClick={handleCreateDatabase}>
 										Create
 									</Button>
 								</DialogActions>
@@ -391,7 +431,8 @@ export const App: React.FC = () => {
 
 					<Button
 						icon={<DatabaseRegular />}
-						appearance="primary"
+						appearance="subtle"
+						size="small"
 						onClick={() => vscode.postMessage({ command: 'loadDatabase' })}
 					>
 						Load Database
@@ -404,7 +445,8 @@ export const App: React.FC = () => {
 						<DialogTrigger disableButtonEnhancement>
 							<Button
 								icon={<AddRegular />}
-								appearance="secondary"
+								appearance="subtle"
+								size="small"
 								disabled={!currentDatabase}
 							>
 								Add Schema
@@ -426,9 +468,9 @@ export const App: React.FC = () => {
 								</DialogContent>
 								<DialogActions>
 									<DialogTrigger disableButtonEnhancement>
-										<Button appearance="secondary">Cancel</Button>
+										<Button appearance="subtle" size="small">Cancel</Button>
 									</DialogTrigger>
-									<Button appearance="primary" onClick={handleAddSchema}>
+									<Button appearance="subtle" size="small" onClick={handleAddSchema}>
 										Add
 									</Button>
 								</DialogActions>
@@ -440,7 +482,8 @@ export const App: React.FC = () => {
 				<MenuTrigger disableButtonEnhancement>
 					<Button
 						icon={<TableRegular />}
-						appearance="secondary"
+						appearance="subtle"
+						size="small"
 						disabled={!currentDatabase || currentDatabase.schemas.length === 0}
 					>
 						Add Table
@@ -459,7 +502,8 @@ export const App: React.FC = () => {
 
 				<Button
 					icon={<OrganizationRegular />}
-					appearance="secondary"
+					appearance="subtle"
+					size="small"
 					onClick={handleAutoLayout}
 					disabled={!currentDatabase || nodes.length === 0}
 					title="Auto Layout - Arrange tables using Dagre algorithm"
@@ -470,6 +514,7 @@ export const App: React.FC = () => {
 				<Button
 					icon={<SaveRegular />}
 					appearance="primary"
+					size="small"
 					onClick={handleSaveDatabase}
 					disabled={!currentDatabase}
 				>
@@ -478,12 +523,21 @@ export const App: React.FC = () => {
 
 				<Button
 					icon={<DocumentTextRegular />}
-					appearance="secondary"
+					appearance="subtle"
+					size="small"
 					onClick={handlePreviewSQL}
 					disabled={!currentDatabase}
 				>
 					Preview SQL
 				</Button>
+
+				<Button
+					icon={isDarkMode ? <WeatherSunnyRegular /> : <WeatherMoonRegular />}
+					appearance="subtle"
+					size="small"
+					onClick={toggleDarkMode}
+					title={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+				/>
 
 				<div className={styles.dbInfo}>
 					{currentDatabase ? `${currentDatabase.name} (${currentDatabase.schemas.length} schemas)` : 'No database'}
@@ -492,9 +546,16 @@ export const App: React.FC = () => {
 
 			<div className={styles.canvas}>
 				<ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} nodeTypes={nodeTypes} fitView>
-					<Background />
+					<Background color={isDarkMode ? '#444' : '#aaa'} />
 					<Controls />
-					<MiniMap />
+					<MiniMap 
+						style={{
+							background: isDarkMode ? '#1e1e1e' : '#fff',
+							border: `1px solid ${isDarkMode ? '#3e3e3e' : '#ddd'}`,
+						}}
+						nodeColor={isDarkMode ? '#555' : '#e2e8f0'}
+						maskColor={isDarkMode ? 'rgba(0, 0, 0, 0.6)' : 'rgba(255, 255, 255, 0.6)'}
+					/>
 				</ReactFlow>
 			</div>
 
@@ -518,7 +579,7 @@ export const App: React.FC = () => {
 							<div className={styles.sqlPreview}>{previewSQL}</div>
 						</DialogContent>
 						<DialogActions>
-							<Button appearance="secondary" onClick={() => setPreviewDialogOpen(false)}>
+							<Button appearance="subtle" size="small" onClick={() => setPreviewDialogOpen(false)}>
 								Close
 							</Button>
 						</DialogActions>
