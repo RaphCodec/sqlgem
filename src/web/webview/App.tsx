@@ -32,6 +32,7 @@ import {
 	SaveRegular,
 	DocumentTextRegular,
 	OrganizationRegular,
+	TagRegular,
 } from '@fluentui/react-icons';
 import {
 	ReactFlow,
@@ -128,6 +129,9 @@ export const App: React.FC = () => {
 	const { fitView } = useReactFlow();
 	const [isDarkMode, setIsDarkMode] = useState(() => {
 		return localStorage.getItem('sqlgem-dark-mode') === 'true';
+	});
+	const [showFKNames, setShowFKNames] = useState(() => {
+		return localStorage.getItem('sqlgem-show-fk-names') === 'true';
 	});
 	const [currentDatabase, setCurrentDatabase] = useState<Database | null>(null);
 	const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
@@ -269,34 +273,46 @@ export const App: React.FC = () => {
 			return;
 		}
 
-		const newNodes: Node[] = [];
 		const newEdges: Edge[] = [];
-		let yOffset = 50;
 
-		database.schemas.forEach((schema) => {
-			if (!schema || !schema.tables) return;
-			let xOffset = 50;
-			schema.tables.forEach((table) => {
-				if (!table || !table.name || !table.columns) return;
+		setNodes((currentNodes) => {
+			const newNodes: Node[] = [];
+			let yOffset = 50;
 
-				newNodes.push({
-					id: `${schema.name}.${table.name}`,
-					type: 'tableNode',
-					position: { x: table.x || xOffset, y: table.y || yOffset },
-					data: {
-						schemaName: schema.name,
-						table: table,
-						onEdit: handleEditTable,
-						onDelete: handleDeleteTable,
-					},
-				});
+			database.schemas.forEach((schema) => {
+				if (!schema || !schema.tables) return;
+				let xOffset = 50;
+				schema.tables.forEach((table) => {
+					if (!table || !table.name || !table.columns) return;
 
-				// Create edges for foreign keys
-				table.columns.forEach((col) => {
-					if (col.isForeignKey && col.foreignKeyRef && col.foreignKeyRef.schema && col.foreignKeyRef.table && col.foreignKeyRef.column) {
-						const sourceId = `${schema.name}.${table.name}`;
-						const targetId = `${col.foreignKeyRef.schema}.${col.foreignKeyRef.table}`;
-						const isSelfReference = sourceId === targetId;
+					const nodeId = `${schema.name}.${table.name}`;
+					// Preserve existing node position if it exists
+					const existingNode = currentNodes.find(n => n.id === nodeId);
+					const position = existingNode?.position || { x: table.x || xOffset, y: table.y || yOffset };
+
+					newNodes.push({
+						id: nodeId,
+						type: 'tableNode',
+						position: position,
+						data: {
+							schemaName: schema.name,
+							table: table,
+							onEdit: handleEditTable,
+							onDelete: handleDeleteTable,
+						},
+					});
+
+					// Create edges for foreign keys
+					table.columns.forEach((col) => {
+						if (col.isForeignKey && col.foreignKeyRef && col.foreignKeyRef.schema && col.foreignKeyRef.table && col.foreignKeyRef.column) {
+							const sourceId = `${schema.name}.${table.name}`;
+							const targetId = `${col.foreignKeyRef.schema}.${col.foreignKeyRef.table}`;
+							const isSelfReference = sourceId === targetId;
+							
+						// Generate FK label: show constraint name when toggle is on, nothing when off
+						const fkLabel = showFKNames 
+							? (col.fkConstraintName || `FK_${table.name}_${col.name}`)
+							: undefined;
 						
 						newEdges.push({
 							id: `${sourceId}-${col.name}-${targetId}`,
@@ -304,31 +320,33 @@ export const App: React.FC = () => {
 							target: targetId,
 							sourceHandle: `${sourceId}-${col.name}-source`,
 							targetHandle: `${targetId}-${col.foreignKeyRef.column}-target`,
-							label: col.name,
-							type: isSelfReference ? 'default' : 'smoothstep',
-							animated: true,
-							style: isSelfReference 
-								? { stroke: '#007acc', strokeWidth: 2, strokeDasharray: '5,5' }
-								: { stroke: '#007acc', strokeWidth: 2 },
-							...(isSelfReference && {
-								// Loop back with offset for self-references
-								markerEnd: {
-									type: 'arrowclosed',
-									color: '#007acc',
-								},
-							}),
-						});
-					}
-				});
+							label: fkLabel,
+								type: isSelfReference ? 'default' : 'smoothstep',
+								animated: true,
+								style: isSelfReference 
+									? { stroke: '#007acc', strokeWidth: 2, strokeDasharray: '5,5' }
+									: { stroke: '#007acc', strokeWidth: 2 },
+								...(isSelfReference && {
+									// Loop back with offset for self-references
+									markerEnd: {
+										type: 'arrowclosed',
+										color: '#007acc',
+									},
+								}),
+							});
+						}
+					});
 
-				xOffset += 300;
+					xOffset += 300;
+				});
+				yOffset += 350;
 			});
-			yOffset += 350;
+
+			return newNodes;
 		});
 
-		setNodes(newNodes);
 		setEdges(newEdges);
-	}, [setNodes, setEdges, handleEditTable]);
+	}, [setNodes, setEdges, handleEditTable, showFKNames]);
 
 	useEffect(() => {
 		vscode.postMessage({ command: 'getDatabaseState' });
@@ -379,6 +397,12 @@ export const App: React.FC = () => {
 		const newMode = !isDarkMode;
 		setIsDarkMode(newMode);
 		localStorage.setItem('sqlgem-dark-mode', String(newMode));
+	};
+
+	const toggleFKNames = () => {
+		const newMode = !showFKNames;
+		setShowFKNames(newMode);
+		localStorage.setItem('sqlgem-show-fk-names', String(newMode));
 	};
 
 	const handleCreateDatabase = () => {
@@ -553,6 +577,15 @@ export const App: React.FC = () => {
 				>
 					Preview SQL
 				</Button>
+
+				<Button
+				icon={<TagRegular />}
+					appearance="subtle"
+					size="small"
+					onClick={toggleFKNames}
+				title={showFKNames ? 'Hide FK Constraint Names' : 'Show FK Constraint Names'}
+					style={{ opacity: showFKNames ? 1 : 0.5 }}
+				/>
 
 				<Button
 					icon={isDarkMode ? <WeatherSunnyRegular /> : <WeatherMoonRegular />}
