@@ -84,15 +84,15 @@ const useStyles = makeStyles({
 	columnList: {
 		display: 'flex',
 		flexDirection: 'column',
-		gap: tokens.spacingVerticalS,
+		gap: '0px',
 	},
 	columnRow: {
 		display: 'flex',
 		flexDirection: 'column',
 		gap: tokens.spacingHorizontalS,
-		padding: tokens.spacingVerticalS,
-		border: `1px solid ${tokens.colorNeutralStroke2}`,
-		borderRadius: tokens.borderRadiusMedium,
+		paddingTop: tokens.spacingVerticalM,
+		paddingBottom: tokens.spacingVerticalM,
+		borderBottom: `1px solid ${tokens.colorNeutralStroke2}`,
 	},
 	columnRowMain: {
 		display: 'flex',
