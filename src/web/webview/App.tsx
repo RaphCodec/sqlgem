@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
 	FluentProvider,
 	webLightTheme,
@@ -149,6 +149,9 @@ export const App: React.FC = () => {
 	// Form states
 	const [dbName, setDbName] = useState('');
 	const [schemaName, setSchemaName] = useState('');
+
+	// Track if initial auto-layout has been applied
+	const initialLayoutApplied = useRef(false);
 
 	// Apply theme-aware styles for React Flow controls
 	useEffect(() => {
@@ -345,7 +348,27 @@ export const App: React.FC = () => {
 		return () => window.removeEventListener('message', handleMessage);
 	}, [updateNodesFromDatabase]);
 
+	// Auto-layout on initial diagram load
+	useEffect(() => {
+		if (!initialLayoutApplied.current && nodes.length > 0 && currentDatabase) {
+			initialLayoutApplied.current = true;
+			
+			// Calculate new positions using Dagre
+			const layoutedNodes = calculateAutoLayout(nodes, edges, {
+				direction: 'LR',
+				nodeSep: 80,
+				rankSep: 150,
+			});
 
+			// Update nodes with new positions
+			setNodes(layoutedNodes);
+
+			// Fit view after layout with padding
+			setTimeout(() => {
+				fitView({ padding: 0.2, duration: 300 });
+			}, 50);
+		}
+	}, [nodes, edges, currentDatabase, setNodes, fitView]);
 
 	const onConnect = useCallback(
 		(params: Connection | Edge) => setEdges((eds) => addEdge(params, eds)),
