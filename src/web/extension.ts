@@ -1,6 +1,7 @@
 // The module 'vscode' contains the VS Code extensibility API
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
+import { parseSQLToDatabase } from './sqlParser';
 
 interface Database {
 	name: string;
@@ -204,87 +205,45 @@ export function activate(context: vscode.ExtensionContext) {
 			const folderEntries = await vscode.workspace.fs.readDirectory(folderUri);
 			const sqlFiles = folderEntries.filter(([name, type]) => type === vscode.FileType.File && name.toLowerCase().endsWith('.sql')).map(([name]) => name);
 
+			console.log(`Loading database from folder: ${pick}`);
+			console.log(`Found ${sqlFiles.length} SQL files:`, sqlFiles);
+
 			let combinedSql = '';
 			for (const f of sqlFiles) {
 				const fileUri = vscode.Uri.joinPath(folderUri, f);
 				const bytes = await vscode.workspace.fs.readFile(fileUri);
-				combinedSql += new TextDecoder().decode(bytes) + '\n';
+				const content = new TextDecoder().decode(bytes);
+				console.log(`Read file ${f}: ${content.length} bytes`);
+				combinedSql += content + '\n';
 			}
 
-			// Parse SQL content to build database structure
-			const db: Database = { name: pick, schemas: [] };
+			console.log(`Total SQL content: ${combinedSql.length} bytes`);
+			console.log('SQL preview (first 500 chars):', combinedSql.substring(0, 500));
 
-			// Helper to ensure schema exists
-			const ensureSchema = (name: string) => {
-				let s = db.schemas.find(x => x.name === name);
-				if (!s) {
-					s = { name, tables: [] };
-					db.schemas.push(s);
-				}
-				return s;
-			};
+			// Parse SQL content using enhanced parser (supports IF NOT EXISTS patterns)
+			const db = parseSQLToDatabase(combinedSql, pick);
 
-			// Parse CREATE TABLE blocks
-			const createTableRe = /CREATE\s+TABLE\s+\[([^\]]+)\]\.\[([^\]]+)\]\s*\(([\s\S]*?)\)\s*;/gi;
-			let ctMatch;
-			while ((ctMatch = createTableRe.exec(combinedSql)) !== null) {
-				const schemaName = ctMatch[1];
-				const tableName = ctMatch[2];
-				const colsBlock = ctMatch[3];
-				const schema = ensureSchema(schemaName);
-				const colsLines = colsBlock.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
-				const columns: Table['columns'] = [];
-				for (let line of colsLines) {
-					// remove trailing comma
-					if (line.endsWith(',')) line = line.slice(0, -1);
-					const colMatch = /^\[([^\]]+)\]\s+([^\s]+)([\s\S]*)$/i.exec(line);
-					if (!colMatch) continue;
-					const colName = colMatch[1];
-					const colType = colMatch[2];
-					const rest = colMatch[3] || '';
-					const isPK = /PRIMARY\s+KEY/i.test(rest);
-					const isNotNull = /NOT\s+NULL/i.test(rest);
-					columns.push({
-						name: colName,
-						type: colType,
-						isPrimaryKey: isPK,
-						isForeignKey: false,
-						isNullable: !isNotNull,
+			console.log(`Parsed database: ${db.name}`);
+			console.log(`Schemas found: ${db.schemas.length}`, db.schemas.map(s => `${s.name} (${s.tables.length} tables)`));
+			db.schemas.forEach(schema => {
+				console.log(`Schema ${schema.name}:`);
+				schema.tables.forEach(table => {
+					console.log(`  Table ${table.name}: ${table.columns.length} columns`);
+					table.columns.forEach(col => {
+						const fkInfo = col.isForeignKey ? ` -> ${col.foreignKeyRef?.schema}.${col.foreignKeyRef?.table}(${col.foreignKeyRef?.column})` : '';
+						console.log(`    ${col.name} ${col.type}${col.isPrimaryKey ? ' PK' : ''}${fkInfo}`);
 					});
-				}
-				schema.tables.push({ name: tableName, columns });
-			}
-
-			// Parse ALTER TABLE ... ADD CONSTRAINT <name> ... FOREIGN KEY ... REFERENCES ...
-			const fkRe = /ALTER\s+TABLE\s+\[([^\]]+)\]\.\[([^\]]+)\]\s+ADD\s+CONSTRAINT\s+\[?([^\]\s]+)\]?[\s\S]*?FOREIGN\s+KEY\s*\(\[([^\]]+)\]\)\s*REFERENCES\s+\[([^\]]+)\]\.\[([^\]]+)\]\s*\(\[([^\]]+)\]\)/gi;
-			let fkMatch;
-			while ((fkMatch = fkRe.exec(combinedSql)) !== null) {
-				const srcSchema = fkMatch[1];
-				const srcTable = fkMatch[2];
-				const constraintName = fkMatch[3];
-				const srcCol = fkMatch[4];
-				const refSchema = fkMatch[5];
-				const refTable = fkMatch[6];
-				const refCol = fkMatch[7];
-
-				const s = db.schemas.find(x => x.name === srcSchema);
-				if (!s) continue;
-				const t = s.tables.find(x => x.name === srcTable);
-				if (!t) continue;
-				const c = t.columns.find(x => x.name === srcCol);
-				if (!c) continue;
-				c.isForeignKey = true;
-				c.foreignKeyRef = { schema: refSchema, table: refTable, column: refCol };
-				if (constraintName) {
-					c.fkConstraintName = constraintName;
-				}
-			}
+				});
+			});
 
 			currentDatabase = db;
 
 			panel.webview.postMessage({ command: 'updateDatabase', database: currentDatabase });
+			console.log('Sent updateDatabase message to webview');
+			
 			vscode.window.showInformationMessage(`Loaded database folder "${pick}" (${sqlFiles.length} .sql files parsed)`);
 		} catch (error) {
+			console.error('Error loading database:', error);
 			vscode.window.showErrorMessage(`Failed to load database: ${error}`);
 		}
 	}
@@ -646,7 +605,7 @@ export function activate(context: vscode.ExtensionContext) {
 			<head>
 				<meta charset="UTF-8">
 				<meta name="viewport" content="width=device-width, initial-scale=1.0">
-				<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
+				<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; connect-src ${webview.cspSource};">
 				<title>SQLGem - ER Diagram</title>
 				<style>
 					body, html {

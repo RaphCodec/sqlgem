@@ -267,11 +267,17 @@ export const App: React.FC = () => {
 	};
 
 	const updateNodesFromDatabase = useCallback((database: Database | null) => {
+		console.log('[Webview] updateNodesFromDatabase called with:', database);
+		
 		if (!database) {
+			console.log('[Webview] No database, clearing nodes/edges');
 			setNodes([]);
 			setEdges([]);
 			return;
 		}
+
+		console.log('[Webview] Processing database:', database.name);
+		console.log('[Webview] Number of schemas:', database.schemas?.length);
 
 		const newEdges: Edge[] = [];
 
@@ -280,9 +286,11 @@ export const App: React.FC = () => {
 			let yOffset = 50;
 
 			database.schemas.forEach((schema) => {
+				console.log(`[Webview] Processing schema: ${schema.name}, tables: ${schema.tables?.length}`);
 				if (!schema || !schema.tables) return;
 				let xOffset = 50;
 				schema.tables.forEach((table) => {
+					console.log(`[Webview]   Processing table: ${table.name}, columns: ${table.columns?.length}`);
 					if (!table || !table.name || !table.columns) return;
 
 					const nodeId = `${schema.name}.${table.name}`;
@@ -301,6 +309,7 @@ export const App: React.FC = () => {
 							onDelete: handleDeleteTable,
 						},
 					});
+					console.log(`[Webview]     Created node: ${nodeId} at (${position.x}, ${position.y})`);
 
 					// Create edges for foreign keys
 					table.columns.forEach((col) => {
@@ -334,6 +343,7 @@ export const App: React.FC = () => {
 									},
 								}),
 							});
+							console.log(`[Webview]       Created FK edge: ${sourceId} -> ${targetId}`);
 						}
 					});
 
@@ -342,18 +352,30 @@ export const App: React.FC = () => {
 				yOffset += 350;
 			});
 
+			console.log(`[Webview] Total nodes created: ${newNodes.length}`);
 			return newNodes;
 		});
 
+		console.log(`[Webview] Total edges created: ${newEdges.length}`);
 		setEdges(newEdges);
-	}, [setNodes, setEdges, handleEditTable, showFKNames]);
+	}, [setNodes, setEdges, handleEditTable, handleDeleteTable, showFKNames]);
 
 	useEffect(() => {
+		console.log('[Webview] Mounted, requesting database state');
 		vscode.postMessage({ command: 'getDatabaseState' });
 
 		const handleMessage = (event: MessageEvent) => {
 			const message = event.data;
+			console.log('[Webview] Received message:', message.command, message);
+			
 			if (message.command === 'updateDatabase') {
+				console.log('[Webview] Database received:', message.database);
+				if (message.database) {
+					console.log('[Webview] Schemas:', message.database.schemas?.length);
+					message.database.schemas?.forEach((schema: any) => {
+						console.log(`[Webview]   Schema: ${schema.name}, Tables: ${schema.tables?.length}`);
+					});
+				}
 				setCurrentDatabase(message.database);
 				updateNodesFromDatabase(message.database);
 			} else if (message.command === 'showSQLPreview') {
