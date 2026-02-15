@@ -33,6 +33,7 @@ import {
 	DocumentTextRegular,
 	OrganizationRegular,
 	TagRegular,
+	FilterRegular,
 } from '@fluentui/react-icons';
 import {
 	ReactFlow,
@@ -51,7 +52,7 @@ import '@xyflow/react/dist/style.css';
 import { Database, Schema, Table, Column, VSCodeAPI } from './types';
 import TableNode from './components/TableNode';
 import { TableEditorSidebar } from './components/TableEditorSidebar';
-import { SchemaFilterPanel } from './components/SchemaFilterPanel';
+// Schema filter replaced by compact toolbar dropdown
 import { calculateAutoLayout } from './utils/autoLayout';
 
 declare const acquireVsCodeApi: () => VSCodeAPI;
@@ -1153,6 +1154,77 @@ const handleEdgesChange = useCallback((changes: any[]) => {
 				</MenuPopover>
 			</Menu>
 
+					{/* Compact Schema Filter Dropdown */}
+					<Menu>
+						<MenuTrigger disableButtonEnhancement>
+							<Button
+								icon={<FilterRegular />}
+								appearance="subtle"
+								size="small"
+								disabled={!currentDatabase || currentDatabase.schemas.length === 0}
+								title="Filter schemas"
+							>
+								Schemas
+							</Button>
+						</MenuTrigger>
+						<MenuPopover>
+							<MenuList>
+								<MenuItem
+									onClick={() => {
+										// Select all
+										if (!currentDatabase) return;
+										const all = new Set(currentDatabase.schemas.map(s => s.name));
+										handleSchemaVisibilityChange(all);
+									}}
+								>
+									Select All
+								</MenuItem>
+								<MenuItem
+									onClick={() => {
+										// Clear all (keep empty selection)
+										handleSchemaVisibilityChange(new Set());
+									}}
+								>
+									Clear All
+								</MenuItem>
+								<MenuItem>
+									<span style={{ opacity: 0.6, fontSize: '12px' }}>Schemas</span>
+								</MenuItem>
+								{availableSchemas.map((s) => {
+									const count = currentDatabase?.schemas.find(x => x.name === s)?.tables.length || 0;
+									const checked = visibleSchemas.has(s);
+									return (
+										<MenuItem
+											key={s}
+											onClick={() => {
+												const newSet = new Set(visibleSchemas);
+												if (newSet.has(s)) newSet.delete(s);
+												else newSet.add(s);
+												handleSchemaVisibilityChange(newSet);
+											}}
+										>
+											<div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: 220 }}>
+												<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+													<input type="checkbox" checked={checked} readOnly />
+													<span>{s}</span>
+												</div>
+												<span style={{ opacity: 0.6 }}>{count}</span>
+											</div>
+										</MenuItem>
+									);
+								})}
+								<MenuItem
+									onClick={() => {
+										// Reset to default schema
+										const def = defaultSchema || (currentDatabase?.schemas[0]?.name ?? 'dbo');
+										handleSchemaVisibilityChange(new Set([def]));
+									}}
+								>
+									Reset to Default
+								</MenuItem>
+							</MenuList>
+						</MenuPopover>
+						</Menu>
 				<Button
 					icon={<OrganizationRegular />}
 					appearance="subtle"
@@ -1247,15 +1319,7 @@ const handleEdgesChange = useCallback((changes: any[]) => {
 					/>
 				</ReactFlow>
 				
-				{currentDatabase && availableSchemas.length > 0 && (
-					<SchemaFilterPanel
-						schemas={availableSchemas}
-						visibleSchemas={visibleSchemas}
-						defaultSchema={defaultSchema}
-						onVisibilityChange={handleSchemaVisibilityChange}
-						onReset={handleResetSchemaFilter}
-					/>
-				)}
+				{/* Schema filter moved to compact toolbar dropdown */}
 			</div>
 
 			{sidebarOpen && editingTable && (
