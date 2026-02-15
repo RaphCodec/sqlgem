@@ -1052,11 +1052,6 @@ const handleEdgesChange = useCallback((changes: any[]) => {
 			<div className={styles.app}>
 				<div className={styles.toolbar}>
 					<Dialog open={newDbDialogOpen} onOpenChange={(_, data) => setNewDbDialogOpen(data.open)}>
-						<DialogTrigger disableButtonEnhancement>
-							<Button icon={<DatabaseRegular />} appearance="subtle" size="small">
-								New Database Diagram
-							</Button>
-						</DialogTrigger>
 						<DialogSurface>
 							<DialogBody>
 								<DialogTitle>New Database Diagram</DialogTitle>
@@ -1081,16 +1076,23 @@ const handleEdgesChange = useCallback((changes: any[]) => {
 								</DialogActions>
 							</DialogBody>
 						</DialogSurface>
-					</Dialog>
+						</Dialog>
 
-					<Button
-						icon={<DatabaseRegular />}
-						appearance="subtle"
-						size="small"
-						onClick={() => vscode.postMessage({ command: 'loadDatabase' })}
-					>
-						Load Database
-					</Button>
+						{/* File menu: New / Load / Save */}
+						<Menu>
+							<MenuTrigger disableButtonEnhancement>
+								<Button appearance="subtle" size="small">
+									File
+								</Button>
+							</MenuTrigger>
+							<MenuPopover>
+								<MenuList>
+									<MenuItem onClick={() => setNewDbDialogOpen(true)}>New Database Diagram</MenuItem>
+									<MenuItem onClick={() => vscode.postMessage({ command: 'loadDatabase' })}>Load Database</MenuItem>
+									<MenuItem onClick={handleSaveDatabase} disabled={!currentDatabase}>Save</MenuItem>
+								</MenuList>
+							</MenuPopover>
+						</Menu>
 
 					<Dialog
 						open={addSchemaDialogOpen}
@@ -1234,15 +1236,7 @@ const handleEdgesChange = useCallback((changes: any[]) => {
 				Auto Layout
 			</Button>
 
-				<Button
-					icon={<SaveRegular />}
-					appearance="primary"
-					size="small"
-					onClick={handleSaveDatabase}
-					disabled={!currentDatabase}
-				>
-					Save
-				</Button>
+
 
 				<Button
 					icon={<DocumentTextRegular />}
