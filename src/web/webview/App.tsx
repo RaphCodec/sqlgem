@@ -580,9 +580,42 @@ export const App: React.FC = () => {
 				return;
 			}
 
+			// Helper function: Check if column is referenceable (PK, UNIQUE, or part of unique constraint/index)
+			const isColumnReferenceable = (column: Column, table: Table): boolean => {
+				// Check column-level PK or UNIQUE
+				if (column.isPrimaryKey || column.isUnique === true) {
+					return true;
+				}
+
+				// Check if column is part of table-level primary key
+				if (table.primaryKey && table.primaryKey.columns.includes(column.name)) {
+					return true;
+				}
+
+				// Check if column is part of a unique constraint
+				if (table.uniqueConstraints) {
+					for (const uc of table.uniqueConstraints) {
+						if (uc.columns.length === 1 && uc.columns.includes(column.name)) {
+							return true;
+						}
+					}
+				}
+
+				// Check if column is part of a unique index (single-column)
+				if (table.indexes) {
+					for (const idx of table.indexes) {
+						if (idx.isUnique && idx.columns.length === 1 && idx.columns.includes(column.name)) {
+							return true;
+						}
+					}
+				}
+
+				return false;
+			};
+
 			// Check which columns are PK/UNIQUE (referenced columns must have unique constraint)
-			const column1IsPKOrUnique = column1.isPrimaryKey || column1.isUnique === true;
-			const column2IsPKOrUnique = column2.isPrimaryKey || column2.isUnique === true;
+			const column1IsPKOrUnique = isColumnReferenceable(column1, table1);
+			const column2IsPKOrUnique = isColumnReferenceable(column2, table2);
 
 			console.log('[FK Creation] Column 1 PK/UNIQUE:', column1IsPKOrUnique, `(PK: ${column1.isPrimaryKey}, UNIQUE: ${column1.isUnique})`);
 			console.log('[FK Creation] Column 2 PK/UNIQUE:', column2IsPKOrUnique, `(PK: ${column2.isPrimaryKey}, UNIQUE: ${column2.isUnique})`);

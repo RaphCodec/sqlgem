@@ -11,8 +11,27 @@ export interface Schema {
 export interface Table {
 	name: string;
 	columns: Column[];
+	primaryKey?: {
+		name?: string;
+		columns: string[];
+		isClustered?: boolean; // MSSQL: PK can be clustered or nonclustered
+	};
+	uniqueConstraints?: UniqueConstraint[];
+	indexes?: Index[];
 	x?: number;
 	y?: number;
+}
+
+export interface Index {
+	name: string;
+	columns: string[];
+	isClustered: boolean;
+	isUnique: boolean;
+}
+
+export interface UniqueConstraint {
+	name: string;
+	columns: string[];
 }
 
 export interface Column {

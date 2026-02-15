@@ -27,8 +27,27 @@ export interface Column {
 export interface Table {
 	name: string;
 	columns: Column[];
+	primaryKey?: {
+		name?: string;
+		columns: string[];
+		isClustered?: boolean;
+	};
+	uniqueConstraints?: UniqueConstraint[];
+	indexes?: Index[];
 	x?: number;
 	y?: number;
+}
+
+export interface Index {
+	name: string;
+	columns: string[];
+	isClustered: boolean;
+	isUnique: boolean;
+}
+
+export interface UniqueConstraint {
+	name: string;
+	columns: string[];
 }
 
 export interface Schema {
@@ -120,6 +139,7 @@ export function parseSQLToDatabase(sqlContent: string, databaseName: string): Da
 		let foundPKConstraint = false;
 		let pkConstraintName = '';
 		const pkColumns: string[] = [];
+		let pkIsClustered = true; // Default to clustered in MSSQL
 		
 		// Store UNIQUE constraint info to apply after column parsing
 		const uniqueConstraints: Array<{
@@ -140,12 +160,14 @@ export function parseSQLToDatabase(sqlContent: string, databaseName: string): Da
 			line = line.trim();
 			if (!line) continue;
 
-			// Check for PRIMARY KEY constraint definition
-			const pkConstraintMatch = /CONSTRAINT\s+\[?([^\]\s]+)\]?\s+PRIMARY\s+KEY\s*\(([^)]+)\)/i.exec(line);
+			// Check for PRIMARY KEY constraint definition (with CLUSTERED/NONCLUSTERED detection)
+			const pkConstraintMatch = /CONSTRAINT\s+\[?([^\]\s]+)\]?\s+PRIMARY\s+KEY\s+(CLUSTERED|NONCLUSTERED)?\s*\(([^)]+)\)/i.exec(line);
 			if (pkConstraintMatch) {
 				foundPKConstraint = true;
 				pkConstraintName = pkConstraintMatch[1];
-				const pkCols = pkConstraintMatch[2].split(',').map(c => c.trim().replace(/[\[\]]/g, ''));
+				const clusterKeyword = pkConstraintMatch[2];
+				pkIsClustered = !clusterKeyword || clusterKeyword.toUpperCase() === 'CLUSTERED';
+				const pkCols = pkConstraintMatch[3].split(',').map(c => c.trim().replace(/[\[\]]/g, ''));
 				pkColumns.push(...pkCols);
 				continue;
 			}
@@ -268,7 +290,27 @@ export function parseSQLToDatabase(sqlContent: string, databaseName: string): Da
 			}
 		}
 
-		schema.tables.push({ name: tableName, columns });
+		// Build table with new structure
+		const table: Table = { 
+			name: tableName, 
+			columns,
+			uniqueConstraints: uniqueConstraints.map(uc => ({
+				name: uc.constraintName,
+				columns: uc.columns
+			})),
+			indexes: [] // Will be populated from CREATE INDEX statements
+		};
+
+		// Add primary key info if exists
+		if (pkColumns.length > 0) {
+			table.primaryKey = {
+				name: foundPKConstraint ? pkConstraintName : undefined,
+				columns: pkColumns,
+				isClustered: pkIsClustered
+			};
+		}
+
+		schema.tables.push(table);
 	}
 
 	// Parse ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY ... REFERENCES ...
@@ -326,6 +368,39 @@ export function parseSQLToDatabase(sqlContent: string, databaseName: string): Da
 			});
 		});
 	});
+
+	// Parse CREATE INDEX statements
+	// Format: CREATE [UNIQUE] [CLUSTERED|NONCLUSTERED] INDEX [name] ON [schema].[table]([columns])
+	const createIndexRe = /CREATE\s+(UNIQUE\s+)?(CLUSTERED|NONCLUSTERED)?\s*INDEX\s+\[?([^\]\s]+)\]?\s+ON\s+(?:\[?([^\]\s.]+)\]?\.)?\[?([^\]\s]+)\]?\s*\(([^)]+)\)/gi;
+	let indexMatch;
+	while ((indexMatch = createIndexRe.exec(cleanSQL)) !== null) {
+		const isUnique = !!indexMatch[1];
+		const clusterKeyword = indexMatch[2];
+		const isClustered = clusterKeyword ? clusterKeyword.toUpperCase() === 'CLUSTERED' : false;
+		const indexName = indexMatch[3];
+		const indexSchema = indexMatch[4] || 'dbo';
+		const indexTable = indexMatch[5];
+		const indexColumns = indexMatch[6].split(',').map(c => c.trim().replace(/[\[\]]/g, ''));
+
+		const s = db.schemas.find(schema => schema.name === indexSchema);
+		if (!s) {
+			continue;
+		}
+		const t = s.tables.find(table => table.name === indexTable);
+		if (!t) {
+			continue;
+		}
+
+		if (!t.indexes) {
+			t.indexes = [];
+		}
+		t.indexes.push({
+			name: indexName,
+			columns: indexColumns,
+			isClustered: isClustered,
+			isUnique: isUnique
+		});
+	}
 
 	return db;
 }

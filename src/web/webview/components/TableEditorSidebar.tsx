@@ -157,12 +157,25 @@ export const TableEditorSidebar: React.FC<TableEditorSidebarProps> = ({
 }) => {
 	const styles = useStyles();
 	const [localSchemaName, setLocalSchemaName] = useState(schemaName);
-	const [localTable, setLocalTable] = useState<Table>({ ...table, columns: [...table.columns] });
+	const [localTable, setLocalTable] = useState<Table>({ 
+		...table, 
+		columns: [...table.columns],
+		uniqueConstraints: table.uniqueConstraints || [],
+		indexes: table.indexes || [],
+		primaryKey: table.primaryKey
+	});
 	const [originalTableName] = useState(table.name);
 	const [typeConfigDialogOpen, setTypeConfigDialogOpen] = useState(false);
 	const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 	const [selectedColumnIndex, setSelectedColumnIndex] = useState<number | null>(null);
 	const [selectedTab, setSelectedTab] = useState<string>('columns');
+	
+	// Index management state
+	const [editingIndexId, setEditingIndexId] = useState<string | null>(null);
+	const [newIndexName, setNewIndexName] = useState('');
+	const [newIndexColumns, setNewIndexColumns] = useState<string[]>([]);
+	const [newIndexIsClustered, setNewIndexIsClustered] = useState(false);
+	const [newIndexIsUnique, setNewIndexIsUnique] = useState(false);
 	
 	// Temporary input state (allows empty strings during editing)
 	const [lengthInput, setLengthInput] = useState<string>('');
@@ -228,6 +241,75 @@ export const TableEditorSidebar: React.FC<TableEditorSidebarProps> = ({
 
 	const handleTabSelect = (event: SelectTabEvent, data: SelectTabData) => {
 		setSelectedTab(data.value as string);
+	};
+
+	// Index management functions
+	const getTotalClusteredIndexes = (): number => {
+		let count = 0;
+		if (localTable.primaryKey?.isClustered) {
+			count++;
+		}
+		if (localTable.indexes) {
+			count += localTable.indexes.filter(idx => idx.isClustered).length;
+		}
+		return count;
+	};
+
+	const canAddClusteredIndex = (): boolean => {
+		return getTotalClusteredIndexes() < 1;
+	};
+
+	const addIndex = () => {
+		if (!newIndexName || newIndexColumns.length === 0) {
+			return;
+		}
+
+		// Validate clustered index rule
+		if (newIndexIsClustered && !canAddClusteredIndex()) {
+			alert('A table can only have one clustered index. Remove the existing clustered index or primary key first.');
+			return;
+		}
+
+		const newIndexes = [
+			...(localTable.indexes || []),
+			{
+				name: newIndexName,
+				columns: newIndexColumns,
+				isClustered: newIndexIsClustered,
+				isUnique: newIndexIsUnique
+			}
+		];
+
+		setLocalTable({ ...localTable, indexes: newIndexes });
+
+		// Reset form
+		setNewIndexName('');
+		setNewIndexColumns([]);
+		setNewIndexIsClustered(false);
+		setNewIndexIsUnique(false);
+	};
+
+	const removeIndex = (indexName: string) => {
+		const newIndexes = (localTable.indexes || []).filter(idx => idx.name !== indexName);
+		setLocalTable({ ...localTable, indexes: newIndexes });
+	};
+
+	const toggleIndexColumn = (columnName: string) => {
+		if (newIndexColumns.includes(columnName)) {
+			setNewIndexColumns(newIndexColumns.filter(c => c !== columnName));
+		} else {
+			setNewIndexColumns([...newIndexColumns, columnName]);
+		}
+	};
+
+	const generateIndexName = (): string => {
+		const prefix = newIndexIsUnique ? 'UX' : 'IX'; // UX for unique indexes, IX for non-unique
+		const colPart = newIndexColumns.length > 0 ? newIndexColumns.join('_') : 'Column';
+		return `${prefix}_${localTable.name}_${colPart}`;
+	};
+
+	const useGeneratedIndexName = () => {
+		setNewIndexName(generateIndexName());
 	};
 
 	const openTypeConfig = (index: number) => {
@@ -368,6 +450,11 @@ export const TableEditorSidebar: React.FC<TableEditorSidebarProps> = ({
 												onChange={(e, data) => updateColumn(index, 'isForeignKey', data.checked)}
 												label="FK"
 											/>
+											<Checkbox
+												checked={col.isUnique || false}
+												onChange={(e, data) => updateColumn(index, 'isUnique', data.checked)}
+												label="UNIQUE"
+											/>
 											<Button
 												appearance="subtle"
 												icon={<DeleteRegular />}
@@ -378,7 +465,7 @@ export const TableEditorSidebar: React.FC<TableEditorSidebarProps> = ({
 										</div>
 									</div>
 
-									{(col.isPrimaryKey || col.isForeignKey) && (
+									{(col.isPrimaryKey || col.isForeignKey || col.isUnique) && (
 										<div className={styles.columnDetails}>
 											{col.isPrimaryKey && (
 												<div className={styles.constraintRow}>
@@ -387,6 +474,18 @@ export const TableEditorSidebar: React.FC<TableEditorSidebarProps> = ({
 														value={col.pkName || ''}
 														onChange={(e) => updateColumn(index, 'pkName', e.target.value)}
 														placeholder={`PK_${localTable.name}_${col.name}`}
+														size="small"
+														style={{ flex: 1 }}
+													/>
+												</div>
+											)}
+											{col.isUnique && !col.isPrimaryKey && (
+												<div className={styles.constraintRow}>
+													<Label size="small" style={{ width: '100px' }}>UNIQUE Name:</Label>
+													<Input
+														value={col.uniqueConstraintName || ''}
+														onChange={(e) => updateColumn(index, 'uniqueConstraintName', e.target.value)}
+														placeholder={`UQ_${localTable.name}_${col.name}`}
 														size="small"
 														style={{ flex: 1 }}
 													/>
@@ -475,8 +574,198 @@ export const TableEditorSidebar: React.FC<TableEditorSidebarProps> = ({
 				)}
 
 				{selectedTab === 'indexes' && (
-					<div className={styles.emptyState}>
-						Primary key indexes are created automatically.
+					<div>
+						<div style={{ marginBottom: tokens.spacingVerticalL }}>
+							<Label weight="semibold" size="large" style={{ marginBottom: tokens.spacingVerticalS }}>
+								Create New Index
+							</Label>
+							
+							{/* Index Name */}
+							<div className={styles.formGroup}>
+								<Label size="small">Index Name</Label>
+								<div style={{ display: 'flex', gap: tokens.spacingHorizontalS }}>
+									<Input
+										value={newIndexName}
+										onChange={(e) => setNewIndexName(e.target.value)}
+										placeholder="Enter index name..."
+										size="small"
+										style={{ flex: 1 }}
+									/>
+									<Button
+										appearance="subtle"
+										onClick={useGeneratedIndexName}
+										size="small"
+										title="Generate name automatically"
+									>
+										Generate
+									</Button>
+								</div>
+							</div>
+
+							{/* Column Selection */}
+							<div className={styles.formGroup}>
+								<Label size="small">Columns (select in order)</Label>
+								<div style={{ 
+									border: `1px solid ${tokens.colorNeutralStroke1}`, 
+									borderRadius: tokens.borderRadiusMedium,
+									padding: tokens.spacingVerticalS,
+									maxHeight: '150px',
+									overflowY: 'auto'
+								}}>
+									{localTable.columns.map((col) => (
+										<Checkbox
+											key={col.name}
+											checked={newIndexColumns.includes(col.name)}
+											onChange={() => toggleIndexColumn(col.name)}
+											label={`${col.name} (${col.type})`}
+											style={{ display: 'block', marginBottom: tokens.spacingVerticalXS }}
+										/>
+									))}
+									{localTable.columns.length === 0 && (
+										<Label size="small" style={{ color: tokens.colorNeutralForeground3 }}>
+											Add columns to the table first
+										</Label>
+									)}
+								</div>
+								{newIndexColumns.length > 0 && (
+									<Label size="small" style={{ marginTop: tokens.spacingVerticalXS, color: tokens.colorNeutralForeground3 }}>
+										Selected: {newIndexColumns.join(', ')}
+									</Label>
+								)}
+							</div>
+
+							{/* Index Options */}
+							<div className={styles.formGroup}>
+								<Checkbox
+									checked={newIndexIsClustered}
+									onChange={(e, data) => setNewIndexIsClustered(data.checked === true)}
+									label="Clustered"
+									disabled={!canAddClusteredIndex()}
+								/>
+								{!canAddClusteredIndex() && (
+									<Label size="small" style={{ color: tokens.colorPaletteRedForeground1, marginLeft: tokens.spacingHorizontalM }}>
+										Table already has a clustered index
+									</Label>
+								)}
+							</div>
+
+							<div className={styles.formGroup}>
+								<Checkbox
+									checked={newIndexIsUnique}
+									onChange={(e, data) => setNewIndexIsUnique(data.checked === true)}
+									label="Unique"
+								/>
+							</div>
+
+							<Button
+								appearance="primary"
+								icon={<AddRegular />}
+								onClick={addIndex}
+								size="small"
+								disabled={!newIndexName || newIndexColumns.length === 0}
+							>
+								Add Index
+							</Button>
+						</div>
+
+						{/* Existing Indexes */}
+						<div>
+							<Label weight="semibold" size="large" style={{ marginBottom: tokens.spacingVerticalS }}>
+								Existing Indexes
+							</Label>
+
+							{/* Primary Key Display */}
+							{localTable.primaryKey && (
+								<div style={{ 
+									padding: tokens.spacingVerticalM,
+									border: `1px solid ${tokens.colorNeutralStroke1}`,
+									borderRadius: tokens.borderRadiusMedium,
+									marginBottom: tokens.spacingVerticalM,
+									backgroundColor: tokens.colorNeutralBackground2
+								}}>
+									<div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+										<div>
+											<Label weight="semibold">
+												{localTable.primaryKey.name || `PK_${localTable.name}`}
+											</Label>
+											<div style={{ color: tokens.colorNeutralForeground3, fontSize: tokens.fontSizeBase200 }}>
+												PRIMARY KEY {localTable.primaryKey.isClustered ? '(CLUSTERED)' : '(NONCLUSTERED)'}
+											</div>
+											<div style={{ fontSize: tokens.fontSizeBase200, marginTop: tokens.spacingVerticalXXS }}>
+												Columns: {localTable.primaryKey.columns.join(', ')}
+											</div>
+										</div>
+									</div>
+								</div>
+							)}
+
+							{/* Unique Constraints */}
+							{localTable.uniqueConstraints && localTable.uniqueConstraints.length > 0 && (
+								<div style={{ marginBottom: tokens.spacingVerticalM }}>
+									<Label size="small" style={{ color: tokens.colorNeutralForeground3, marginBottom: tokens.spacingVerticalXS }}>
+										Unique Constraints
+									</Label>
+									{localTable.uniqueConstraints.map((uc, idx) => (
+										<div key={idx} style={{ 
+											padding: tokens.spacingVerticalS,
+											border: `1px solid ${tokens.colorNeutralStroke2}`,
+											borderRadius: tokens.borderRadiusMedium,
+											marginBottom: tokens.spacingVerticalS,
+											fontSize: tokens.fontSizeBase200
+										}}>
+											<Label size="small" weight="semibold">{uc.name}</Label>
+											<div style={{ color: tokens.colorNeutralForeground3 }}>
+												Columns: {uc.columns.join(', ')}
+											</div>
+										</div>
+									))}
+								</div>
+							)}
+
+							{/* User Indexes */}
+							{localTable.indexes && localTable.indexes.length > 0 ? (
+								<div className={styles.columnList}>
+									{localTable.indexes.map((idx, index) => (
+										<div key={index} style={{ 
+											display: 'flex', 
+											justifyContent: 'space-between', 
+											alignItems: 'center',
+											padding: tokens.spacingVerticalM,
+											border: `1px solid ${tokens.colorNeutralStroke1}`,
+											borderRadius: tokens.borderRadiusMedium,
+											marginBottom: tokens.spacingVerticalS
+										}}>
+											<div>
+												<Label weight="semibold">{idx.name}</Label>
+												<div style={{ color: tokens.colorNeutralForeground3, fontSize: tokens.fontSizeBase200 }}>
+													{idx.isUnique ? 'UNIQUE ' : ''}
+													{idx.isClustered ? 'CLUSTERED' : 'NONCLUSTERED'}
+												</div>
+												<div style={{ fontSize: tokens.fontSizeBase200, marginTop: tokens.spacingVerticalXXS }}>
+													Columns: {idx.columns.join(', ')}
+												</div>
+											</div>
+											<Button
+												appearance="subtle"
+												icon={<DeleteRegular />}
+												onClick={() => removeIndex(idx.name)}
+												size="small"
+												title="Remove index"
+											/>
+										</div>
+									))}
+								</div>
+							) : (
+								<div style={{ 
+									padding: tokens.spacingVerticalL,
+									textAlign: 'center',
+									color: tokens.colorNeutralForeground3,
+									fontSize: tokens.fontSizeBase200
+								}}>
+									No indexes defined. Create one above.
+								</div>
+							)}
+						</div>
 					</div>
 				)}
 			</div>

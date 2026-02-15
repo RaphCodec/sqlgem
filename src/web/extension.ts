@@ -13,9 +13,30 @@ interface Schema {
 	tables: Table[];
 }
 
+interface UniqueConstraint {
+	name: string;
+	columns: string[];
+}
+
+interface Index {
+	name: string;
+	columns: string[];
+	isClustered: boolean;
+	isUnique: boolean;
+}
+
+interface PrimaryKey {
+	name?: string;
+	columns: string[];
+	isClustered?: boolean;
+}
+
 interface Table {
 	name: string;
 	columns: Column[];
+	primaryKey?: PrimaryKey;
+	uniqueConstraints?: UniqueConstraint[];
+	indexes?: Index[];
 	x?: number;
 	y?: number;
 }
@@ -26,6 +47,7 @@ interface Column {
 	isPrimaryKey: boolean;
 	isForeignKey: boolean;
 	isNullable: boolean;
+	isUnique?: boolean;
 	defaultValue?: string;
 	foreignKeyRef?: {
 		schema: string;
@@ -34,6 +56,7 @@ interface Column {
 	};
 	pkName?: string;
 	fkConstraintName?: string;
+	uniqueConstraintName?: string;
 	length?: number;
 	precision?: number;
 	scale?: number;
@@ -460,16 +483,57 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 
 		// Add primary key constraint if present
-		const pkCols = table.columns.filter(c => c.isPrimaryKey).map(c => `[${c.name}]`);
+		// Check table-level PK first, then fall back to column-level PKs
+		let pkCols: string[] = [];
+		let pkName = `PK_${table.name}`;
+		let pkIsClustered = true; // Default to clustered
+		
+		if (table.primaryKey) {
+			// Use table-level primary key definition
+			pkCols = table.primaryKey.columns.map(col => `[${col}]`);
+			pkName = table.primaryKey.name || pkName;
+			pkIsClustered = table.primaryKey.isClustered !== false; // Default to clustered if not specified
+		} else {
+			// Fall back to column-level PKs
+			pkCols = table.columns.filter(c => c.isPrimaryKey).map(c => `[${c.name}]`);
+			const pkCol = table.columns.find(c => c.isPrimaryKey && c.pkName);
+			if (pkCol) {
+				pkName = pkCol.pkName!;
+			}
+		}
+		
 		if (pkCols.length > 0) {
-			const pkName = table.columns.find(c => c.isPrimaryKey && c.pkName)?.pkName || `PK_${table.name}`;
-			tableSql += `,\n    CONSTRAINT [${pkName}] PRIMARY KEY (${pkCols.join(', ')})`;
+			const clusterKeyword = pkIsClustered ? 'CLUSTERED' : 'NONCLUSTERED';
+			tableSql += `,\n    CONSTRAINT [${pkName}] PRIMARY KEY ${clusterKeyword} (${pkCols.join(', ')})`;
 		}
 
 		tableSql += `\n);\n`;
 		
 		if (useIfNotExists) {
 			tableSql += `END\n`;
+		}
+
+		// Add column-level UNIQUE constraints as inline constraints (deprecated pattern)
+		// Modern approach: use table.uniqueConstraints array instead
+		const uniqueColumns = table.columns.filter(c => c.isUnique && !c.isPrimaryKey);
+		if (uniqueColumns.length > 0) {
+			uniqueColumns.forEach(col => {
+				const ucName = col.uniqueConstraintName || `UQ_${table.name}_${col.name}`;
+				if (useIfNotExists) {
+					tableSql += `\nIF NOT EXISTS (\n`;
+					tableSql += `    SELECT 1 FROM sys.key_constraints\n`;
+					tableSql += `    WHERE name = N'${ucName}'\n`;
+					tableSql += `    AND parent_object_id = OBJECT_ID(N'[${schemaName}].[${table.name}]')\n`;
+					tableSql += `)\n`;
+					tableSql += `BEGIN\n`;
+					tableSql += `    ALTER TABLE [${schemaName}].[${table.name}]\n`;
+					tableSql += `        ADD CONSTRAINT [${ucName}] UNIQUE ([${col.name}]);\n`;
+					tableSql += `END\n`;
+				} else {
+					tableSql += `\nALTER TABLE [${schemaName}].[${table.name}]\n`;
+					tableSql += `    ADD CONSTRAINT [${ucName}] UNIQUE ([${col.name}]);\n`;
+				}
+			});
 		}
 
 		return tableSql;
@@ -550,6 +614,93 @@ export function activate(context: vscode.ExtensionContext) {
 				});
 			});
 		});
+
+		// Collect all unique constraints (table-level only)
+		const allUniqueConstraints: string[] = [];
+		currentDatabase.schemas.forEach(schema => {
+			schema.tables.forEach(table => {
+				// Add table-level unique constraints
+				if (table.uniqueConstraints) {
+					table.uniqueConstraints.forEach(uc => {
+						// Auto-generate name if missing
+						const constraintName = uc.name || `UQ_${table.name}_${uc.columns.join('_')}`;
+						const ucCols = uc.columns.map(col => `[${col}]`).join(', ');
+						let ucSql = '';
+						if (useIfNotExists) {
+							ucSql += `IF NOT EXISTS (\n`;
+							ucSql += `    SELECT 1 FROM sys.key_constraints\n`;
+							ucSql += `    WHERE name = N'${constraintName}'\n`;
+							ucSql += `    AND parent_object_id = OBJECT_ID(N'[${schema.name}].[${table.name}]')\n`;
+							ucSql += `)\n`;
+							ucSql += `BEGIN\n`;
+							ucSql += `    ALTER TABLE [${schema.name}].[${table.name}]\n`;
+							ucSql += `        ADD CONSTRAINT [${constraintName}] UNIQUE (${ucCols});\n`;
+							ucSql += `END`;
+						} else {
+							ucSql += `ALTER TABLE [${schema.name}].[${table.name}]\n`;
+							ucSql += `    ADD CONSTRAINT [${constraintName}] UNIQUE (${ucCols});`;
+						}
+						allUniqueConstraints.push(ucSql);
+					});
+				}
+			});
+		});
+
+		// Collect all indexes
+		const allIndexes: string[] = [];
+		currentDatabase.schemas.forEach(schema => {
+			schema.tables.forEach(table => {
+				if (table.indexes) {
+					table.indexes.forEach(idx => {
+						// Auto-generate name if missing using correct naming conventions
+						let indexName = idx.name;
+						if (!indexName) {
+							const prefix = idx.isUnique ? 'UX' : 'IX'; // UX for unique, IX for non-unique
+							indexName = `${prefix}_${table.name}_${idx.columns.join('_')}`;
+						}
+						
+						const idxCols = idx.columns.map(col => `[${col}]`).join(', ');
+						const uniqueKeyword = idx.isUnique ? 'UNIQUE ' : '';
+						const clusterKeyword = idx.isClustered ? 'CLUSTERED' : 'NONCLUSTERED';
+						
+						let idxSql = '';
+						if (useIfNotExists) {
+							idxSql += `IF NOT EXISTS (\n`;
+							idxSql += `    SELECT 1 FROM sys.indexes\n`;
+							idxSql += `    WHERE name = N'${indexName}'\n`;
+							idxSql += `    AND object_id = OBJECT_ID(N'[${schema.name}].[${table.name}]')\n`;
+							idxSql += `)\n`;
+							idxSql += `BEGIN\n`;
+							idxSql += `    CREATE ${uniqueKeyword}${clusterKeyword} INDEX [${indexName}]\n`;
+							idxSql += `        ON [${schema.name}].[${table.name}] (${idxCols});\n`;
+							idxSql += `END`;
+						} else {
+							idxSql += `CREATE ${uniqueKeyword}${clusterKeyword} INDEX [${indexName}]\n`;
+							idxSql += `    ON [${schema.name}].[${table.name}] (${idxCols});`;
+						}
+						allIndexes.push(idxSql);
+					});
+				}
+			});
+		});
+
+		if (allUniqueConstraints.length > 0) {
+			sql += `-- ====================================\n`;
+			sql += `-- Unique Constraints\n`;
+			sql += `-- ====================================\n\n`;
+			allUniqueConstraints.forEach(uc => {
+				sql += uc + '\nGO\n\n';
+			});
+		}
+
+		if (allIndexes.length > 0) {
+			sql += `-- ====================================\n`;
+			sql += `-- Indexes\n`;
+			sql += `-- ====================================\n\n`;
+			allIndexes.forEach(idx => {
+				sql += idx + '\nGO\n\n';
+			});
+		}
 
 		if (allForeignKeys.length > 0) {
 			sql += `-- ====================================\n`;
