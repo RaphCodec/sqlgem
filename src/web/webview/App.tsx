@@ -24,7 +24,7 @@ import {
 	MenuItem,
 } from '@fluentui/react-components';
 import {
-	AddRegular,
+    
 	DatabaseRegular,
 	TableRegular,
 	WeatherMoonRegular,
@@ -1096,16 +1096,6 @@ const handleEdgesChange = useCallback((changes: any[]) => {
 						open={addSchemaDialogOpen}
 						onOpenChange={(_, data) => setAddSchemaDialogOpen(data.open)}
 					>
-						<DialogTrigger disableButtonEnhancement>
-							<Button
-								icon={<AddRegular />}
-								appearance="subtle"
-								size="small"
-								disabled={!currentDatabase}
-							>
-								Add Schema
-							</Button>
-						</DialogTrigger>
 						<DialogSurface>
 							<DialogBody>
 								<DialogTitle>Add Schema</DialogTitle>
@@ -1157,36 +1147,44 @@ const handleEdgesChange = useCallback((changes: any[]) => {
 					{/* Compact Schema Filter Dropdown */}
 					<Menu>
 						<MenuTrigger disableButtonEnhancement>
-							<Button
-								icon={<FilterRegular />}
-								appearance="subtle"
-								size="small"
-								disabled={!currentDatabase || currentDatabase.schemas.length === 0}
-								title="Filter schemas"
-							>
-								Schemas
-							</Button>
+	                        		<Button
+	                        			icon={<FilterRegular />}
+	                        			appearance="subtle"
+	                        			size="small"
+	                        			disabled={!currentDatabase || currentDatabase.schemas.length === 0}
+	                        			title="Filter schemas"
+	                        		>
+	                        			Schemas
+	                        		</Button>
 						</MenuTrigger>
 						<MenuPopover>
-							<MenuList>
-								<MenuItem
-									onClick={() => {
-										// Select all
-										if (!currentDatabase) return;
-										const all = new Set(currentDatabase.schemas.map(s => s.name));
-										handleSchemaVisibilityChange(all);
-									}}
-								>
-									Select All
-								</MenuItem>
-								<MenuItem
-									onClick={() => {
-										// Clear all (keep empty selection)
-										handleSchemaVisibilityChange(new Set());
-									}}
-								>
-									Clear All
-								</MenuItem>
+                        		<MenuList>
+                        			<MenuItem
+                        				onClick={() => {
+                        					// Open add schema dialog
+                        					setAddSchemaDialogOpen(true);
+                        				}}
+                        			>
+                        				Add schema
+                        			</MenuItem>
+                        			<MenuItem
+                        				onClick={() => {
+                        					// Select all
+                        					if (!currentDatabase) return;
+                        					const all = new Set(currentDatabase.schemas.map(s => s.name));
+                        					handleSchemaVisibilityChange(all);
+                        				}}
+                        			>
+                        				Select All
+                        			</MenuItem>
+                        			<MenuItem
+                        				onClick={() => {
+                        					// Clear all (keep empty selection)
+                        					handleSchemaVisibilityChange(new Set());
+                        				}}
+                        			>
+                        				Clear All
+                        			</MenuItem>
 								<MenuItem>
 									<span style={{ opacity: 0.6, fontSize: '12px' }}>Schemas</span>
 								</MenuItem>
