@@ -435,6 +435,8 @@ export const App: React.FC = () => {
 						console.log(`[Webview]   Schema: ${schema.name}, Tables: ${schema.tables?.length}`);
 					});
 				}
+				// Reset layout flag to trigger auto-layout on database load
+				initialLayoutApplied.current = false;
 				setCurrentDatabase(message.database);
 				updateNodesFromDatabase(message.database);
 			} else if (message.command === 'showSQLPreview') {
