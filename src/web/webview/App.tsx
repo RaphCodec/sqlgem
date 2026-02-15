@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import {
 	FluentProvider,
 	webLightTheme,
@@ -51,6 +51,7 @@ import '@xyflow/react/dist/style.css';
 import { Database, Schema, Table, Column, VSCodeAPI } from './types';
 import TableNode from './components/TableNode';
 import { TableEditorSidebar } from './components/TableEditorSidebar';
+import { SchemaFilterPanel } from './components/SchemaFilterPanel';
 import { calculateAutoLayout } from './utils/autoLayout';
 
 declare const acquireVsCodeApi: () => VSCodeAPI;
@@ -120,6 +121,7 @@ const useStyles = makeStyles({
 	},
 });
 
+// Memoize nodeTypes outside component to prevent recreation
 const nodeTypes = {
 	tableNode: TableNode,
 };
@@ -139,6 +141,11 @@ export const App: React.FC = () => {
 	const [currentDatabase, setCurrentDatabase] = useState<Database | null>(null);
 	const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
 	const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+	const [visibleSchemas, setVisibleSchemas] = useState<Set<string>>(() => {
+		const saved = localStorage.getItem('sqlgem-visible-schemas');
+		return saved ? new Set(JSON.parse(saved)) : new Set(['dbo']);
+	});
+	const debounceTimerRef = useRef<number | null>(null);
 
 	// Dialog states
 	const [newDbDialogOpen, setNewDbDialogOpen] = useState(false);
@@ -159,6 +166,53 @@ export const App: React.FC = () => {
 
 	// Track if initial auto-layout has been applied
 	const initialLayoutApplied = useRef(false);
+
+	// Extract schema names from database
+	const availableSchemas = React.useMemo(() => {
+		if (!currentDatabase) return [];
+		return currentDatabase.schemas.map(s => s.name).sort();
+	}, [currentDatabase]);
+
+	// Get default schema
+	const defaultSchema = React.useMemo(() => {
+		if (!currentDatabase || currentDatabase.schemas.length === 0) return 'dbo';
+		// Check if 'dbo' exists, otherwise return first schema
+		return currentDatabase.schemas.some(s => s.name === 'dbo') 
+			? 'dbo' 
+			: currentDatabase.schemas[0].name;
+	}, [currentDatabase]);
+
+	// Update node and edge visibility using hidden property (no re-render)
+	useEffect(() => {
+		console.log('[Webview] Updating visibility for schemas:', Array.from(visibleSchemas));
+		
+		// Update nodes with hidden property instead of filtering
+		setNodes((nds) => 
+			nds.map((node) => {
+				const schemaName = node.id.split('.')[0];
+				const isHidden = !visibleSchemas.has(schemaName);
+				// Only update if hidden state changed
+				if (node.hidden !== isHidden) {
+					return { ...node, hidden: isHidden };
+				}
+				return node;
+			})
+		);
+
+		// Update edges with hidden property
+		setEdges((eds) => 
+			eds.map((edge) => {
+				const sourceSchema = edge.source.split('.')[0];
+				const targetSchema = edge.target.split('.')[0];
+				const isHidden = !visibleSchemas.has(sourceSchema) || !visibleSchemas.has(targetSchema);
+				// Only update if hidden state changed
+				if (edge.hidden !== isHidden) {
+					return { ...edge, hidden: isHidden };
+				}
+				return edge;
+			})
+		);
+	}, [visibleSchemas, setNodes, setEdges]);
 
 	// Apply theme-aware styles for React Flow controls
 	useEffect(() => {
@@ -282,86 +336,88 @@ export const App: React.FC = () => {
 		console.log('[Webview] Processing database:', database.name);
 		console.log('[Webview] Number of schemas:', database.schemas?.length);
 
+		const newNodes: Node[] = [];
 		const newEdges: Edge[] = [];
+		let yOffset = 50;
 
-		setNodes((currentNodes) => {
-			const newNodes: Node[] = [];
-			let yOffset = 50;
+		database.schemas.forEach((schema) => {
+			console.log(`[Webview] Processing schema: ${schema.name}, tables: ${schema.tables?.length}`);
+			if (!schema || !schema.tables) return;
+			let xOffset = 50;
+			schema.tables.forEach((table) => {
+				console.log(`[Webview]   Processing table: ${table.name}, columns: ${table.columns?.length}`);
+				if (!table || !table.name || !table.columns) return;
 
-			database.schemas.forEach((schema) => {
-				console.log(`[Webview] Processing schema: ${schema.name}, tables: ${schema.tables?.length}`);
-				if (!schema || !schema.tables) return;
-				let xOffset = 50;
-				schema.tables.forEach((table) => {
-					console.log(`[Webview]   Processing table: ${table.name}, columns: ${table.columns?.length}`);
-					if (!table || !table.name || !table.columns) return;
-
-					const nodeId = `${schema.name}.${table.name}`;
-					// Preserve existing node position if it exists
-					const existingNode = currentNodes.find(n => n.id === nodeId);
-					const position = existingNode?.position || { x: table.x || xOffset, y: table.y || yOffset };
-
-					newNodes.push({
-						id: nodeId,
-						type: 'tableNode',
-						position: position,
-						data: {
-							schemaName: schema.name,
-							table: table,
-							onEdit: handleEditTable,
-							onDelete: handleDeleteTable,
-						},
-					});
-					console.log(`[Webview]     Created node: ${nodeId} at (${position.x}, ${position.y})`);
-
-					// Create edges for foreign keys
-					table.columns.forEach((col) => {
-						if (col.isForeignKey && col.foreignKeyRef && col.foreignKeyRef.schema && col.foreignKeyRef.table && col.foreignKeyRef.column) {
-							const sourceId = `${schema.name}.${table.name}`;
-							const targetId = `${col.foreignKeyRef.schema}.${col.foreignKeyRef.table}`;
-							const isSelfReference = sourceId === targetId;
-							
-						// Generate FK label: show constraint name when toggle is on, nothing when off
-						const fkLabel = showFKNames 
-							? (col.fkConstraintName || `FK_${table.name}_${col.name}`)
-							: undefined;
-						
-						newEdges.push({
-							id: `${sourceId}-${col.name}-${targetId}`,
-							source: sourceId,
-							target: targetId,
-							sourceHandle: `${sourceId}-${col.name}-source`,
-							targetHandle: `${targetId}-${col.foreignKeyRef.column}-target`,
-							label: fkLabel,
-								type: isSelfReference ? 'default' : 'smoothstep',
-								animated: true,
-								style: isSelfReference 
-									? { stroke: '#007acc', strokeWidth: 2, strokeDasharray: '5,5' }
-									: { stroke: '#007acc', strokeWidth: 2 },
-								...(isSelfReference && {
-									// Loop back with offset for self-references
-									markerEnd: {
-										type: 'arrowclosed',
-										color: '#007acc',
-									},
-								}),
-							});
-							console.log(`[Webview]       Created FK edge: ${sourceId} -> ${targetId}`);
-						}
-					});
-
-					xOffset += 300;
+				const nodeId = `${schema.name}.${table.name}`;
+				// Check if node should be hidden based on current visible schemas
+				const isHidden = !visibleSchemas.has(schema.name);
+				
+				newNodes.push({
+					id: nodeId,
+					type: 'tableNode',
+					position: { x: table.x || xOffset, y: table.y || yOffset },
+					hidden: isHidden,
+					data: {
+						schemaName: schema.name,
+						table: table,
+						onEdit: handleEditTable,
+						onDelete: handleDeleteTable,
+					},
 				});
-				yOffset += 350;
-			});
+				console.log(`[Webview]     Created node: ${nodeId} at (${table.x || xOffset}, ${table.y || yOffset}), hidden: ${isHidden}`);
 
-			console.log(`[Webview] Total nodes created: ${newNodes.length}`);
-			return newNodes;
+				// Create edges for foreign keys
+				table.columns.forEach((col) => {
+					if (col.isForeignKey && col.foreignKeyRef && col.foreignKeyRef.schema && col.foreignKeyRef.table && col.foreignKeyRef.column) {
+						const sourceId = `${schema.name}.${table.name}`;
+						const targetId = `${col.foreignKeyRef.schema}.${col.foreignKeyRef.table}`;
+						const isSelfReference = sourceId === targetId;
+						
+					// Generate FK label: show constraint name when toggle is on, nothing when off
+					const fkLabel = showFKNames 
+						? (col.fkConstraintName || `FK_${table.name}_${col.name}`)
+						: undefined;
+					
+					// Check if edge should be hidden
+					const edgeHidden = !visibleSchemas.has(schema.name) || !visibleSchemas.has(col.foreignKeyRef.schema);
+					
+					newEdges.push({
+						id: `${sourceId}-${col.name}-${targetId}`,
+						source: sourceId,
+						target: targetId,
+						sourceHandle: `${sourceId}-${col.name}-source`,
+						targetHandle: `${targetId}-${col.foreignKeyRef.column}-target`,
+						label: fkLabel,
+						hidden: edgeHidden,
+						type: isSelfReference ? 'default' : 'smoothstep',
+						animated: true,
+						style: isSelfReference 
+							? { stroke: '#007acc', strokeWidth: 2, strokeDasharray: '5,5' }
+							: { stroke: '#007acc', strokeWidth: 2 },
+						...(isSelfReference && {
+							// Loop back with offset for self-references
+							markerEnd: {
+								type: 'arrowclosed',
+								color: '#007acc',
+							},
+						}),
+					});
+					console.log(`[Webview]       Created FK edge: ${sourceId} -> ${targetId}, hidden: ${edgeHidden}`);
+					}
+				});
+
+				xOffset += 300;
+			});
+			yOffset += 350;
 		});
 
+		console.log(`[Webview] Total nodes created: ${newNodes.length}`);
 		console.log(`[Webview] Total edges created: ${newEdges.length}`);
+		
+		// Set nodes and edges directly
+		setNodes(newNodes);
 		setEdges(newEdges);
-	}, [setNodes, setEdges, handleEditTable, handleDeleteTable, showFKNames]);
+	}, [visibleSchemas, handleEditTable, handleDeleteTable, showFKNames, setNodes, setEdges]);
 
 	useEffect(() => {
 		console.log('[Webview] Mounted, requesting database state');
@@ -408,7 +464,7 @@ export const App: React.FC = () => {
 
 			// Fit view after layout with padding
 			setTimeout(() => {
-				fitView({ padding: 0.2, duration: 300 });
+				(fitView as any)({ padding: 0.2, duration: 300 });
 			}, 50);
 		}
 	}, [nodes, edges, currentDatabase, setNodes, fitView]);
@@ -417,6 +473,9 @@ export const App: React.FC = () => {
 		(params: Connection | Edge) => setEdges((eds) => addEdge(params, eds)),
 		[setEdges]
 	);
+
+	// Memoize ReactFlow props for performance
+	const proOptions = useMemo(() => ({ hideAttribution: true }), []);
 
 	const toggleDarkMode = () => {
 		const newMode = !isDarkMode;
@@ -429,6 +488,26 @@ export const App: React.FC = () => {
 		setShowFKNames(newMode);
 		localStorage.setItem('sqlgem-show-fk-names', String(newMode));
 	};
+
+	// Update edge labels when FK name visibility changes
+	useEffect(() => {
+		setEdges((eds) => 
+			eds.map((edge) => {
+				// Extract table and column names from edge
+				const sourceTableName = edge.source.split('.')[1];
+				const sourceColName = edge.sourceHandle?.split('-')[2] || '';
+				const fkLabel = showFKNames 
+					? (edge.label || `FK_${sourceTableName}_${sourceColName}`)
+					: undefined;
+				
+				// Only update if label changed
+				if (edge.label !== fkLabel) {
+					return { ...edge, label: fkLabel };
+				}
+				return edge;
+			})
+		);
+	}, [showFKNames, setEdges]);
 
 	const toggleIfNotExists = () => {
 		const newMode = !useIfNotExists;
@@ -467,10 +546,28 @@ export const App: React.FC = () => {
 
 		// Fit view after layout with padding
 		setTimeout(() => {
-			fitView({ padding: 0.2, duration: 300 });
+			(fitView as any)({ padding: 0.2, duration: 300 });
 		}, 50);
 	}, [currentDatabase, nodes, edges, setNodes, fitView]);
 
+	const handleSchemaVisibilityChange = useCallback((newVisibleSchemas: Set<string>) => {
+		// Debounce rapid changes to prevent flickering
+		if (debounceTimerRef.current !== null) {
+			window.clearTimeout(debounceTimerRef.current);
+		}
+		
+		// Update immediately for responsive feel
+		setVisibleSchemas(newVisibleSchemas);
+		
+		// Debounce localStorage save
+		debounceTimerRef.current = window.setTimeout(() => {
+			localStorage.setItem('sqlgem-visible-schemas', JSON.stringify(Array.from(newVisibleSchemas)));
+		}, 300);
+	}, []);
+
+	const handleResetSchemaFilter = useCallback(() => {
+		setVisibleSchemas(new Set([defaultSchema]));
+	}, [defaultSchema]);
 	return (
 		<FluentProvider theme={isDarkMode ? webDarkTheme : webLightTheme}>
 			<div className={styles.app}>
@@ -583,11 +680,11 @@ export const App: React.FC = () => {
 					appearance="subtle"
 					size="small"
 					onClick={handleAutoLayout}
-					disabled={!currentDatabase || nodes.length === 0}
-					title="Auto Layout - Arrange tables using Dagre algorithm"
-				>
-					Auto Layout
-				</Button>
+				disabled={!currentDatabase || nodes.length === 0}
+				title="Auto Layout - Arrange tables using Dagre algorithm"
+			>
+				Auto Layout
+			</Button>
 
 				<Button
 					icon={<SaveRegular />}
@@ -641,7 +738,22 @@ export const App: React.FC = () => {
 			</div>
 
 			<div className={styles.canvas}>
-				<ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} nodeTypes={nodeTypes} fitView>
+				<ReactFlow 
+					nodes={nodes} 
+					edges={edges} 
+					onNodesChange={onNodesChange} 
+					onEdgesChange={onEdgesChange} 
+					onConnect={onConnect} 
+					nodeTypes={nodeTypes}
+					nodesDraggable={true}
+					nodesConnectable={true}
+					elementsSelectable={true}
+					zoomOnScroll={true}
+					panOnScroll={false}
+					preventScrolling={true}
+					zoomOnDoubleClick={false}
+					selectNodesOnDrag={false}
+				>
 					<Background color={isDarkMode ? '#444' : '#aaa'} />
 					<Controls />
 					<MiniMap 
@@ -653,6 +765,16 @@ export const App: React.FC = () => {
 						maskColor={isDarkMode ? 'rgba(0, 0, 0, 0.6)' : 'rgba(255, 255, 255, 0.6)'}
 					/>
 				</ReactFlow>
+				
+				{currentDatabase && availableSchemas.length > 0 && (
+					<SchemaFilterPanel
+						schemas={availableSchemas}
+						visibleSchemas={visibleSchemas}
+						defaultSchema={defaultSchema}
+						onVisibilityChange={handleSchemaVisibilityChange}
+						onReset={handleResetSchemaFilter}
+					/>
+				)}
 			</div>
 
 			{sidebarOpen && editingTable && (

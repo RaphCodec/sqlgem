@@ -224,4 +224,14 @@ const TableNode: React.FC<TableNodeProps> = ({ data }) => {
 	);
 };
 
-export default TableNode;
+// Memoize component to prevent unnecessary re-renders
+export default React.memo(TableNode, (prevProps, nextProps) => {
+	// Only re-render if table data or schema name changes
+	return (
+		prevProps.data.schemaName === nextProps.data.schemaName &&
+		prevProps.data.table.name === nextProps.data.table.name &&
+		prevProps.data.table.columns.length === nextProps.data.table.columns.length &&
+		prevProps.data.onEdit === nextProps.data.onEdit &&
+		prevProps.data.onDelete === nextProps.data.onDelete
+	);
+});
