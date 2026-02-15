@@ -333,6 +333,42 @@ export const App: React.FC = () => {
 			return;
 		}
 
+		// Ensure column flags are synced with table-level constraints
+		// This is critical for proper icon display and UI state
+		database.schemas.forEach(schema => {
+			schema.tables.forEach(table => {
+				// Sync PRIMARY KEY: if table.primaryKey exists, ensure columns have isPrimaryKey = true
+				if (table.primaryKey && table.primaryKey.columns) {
+					table.primaryKey.columns.forEach(pkColName => {
+						const col = table.columns.find(c => c.name === pkColName);
+						if (col && !col.isPrimaryKey) {
+							col.isPrimaryKey = true;
+							// Also set pkName if not already set
+							if (!col.pkName && table.primaryKey!.name) {
+								col.pkName = table.primaryKey!.name;
+							}
+						}
+					});
+				}
+
+				// Sync UNIQUE CONSTRAINTS: if table.uniqueConstraints exists, ensure columns have isUniqueConstraint = true
+				if (table.uniqueConstraints) {
+					table.uniqueConstraints.forEach(uc => {
+						uc.columns.forEach(ucColName => {
+							const col = table.columns.find(c => c.name === ucColName);
+							if (col && !col.isUniqueConstraint) {
+								col.isUniqueConstraint = true;
+								// Also set uniqueConstraintName if not already set
+								if (!col.uniqueConstraintName) {
+									col.uniqueConstraintName = uc.name;
+								}
+							}
+						});
+					});
+				}
+			});
+		});
+
 		console.log('[Webview] Processing database:', database.name);
 		console.log('[Webview] Number of schemas:', database.schemas?.length);
 
@@ -582,8 +618,8 @@ export const App: React.FC = () => {
 
 			// Helper function: Check if column is referenceable (PK, UNIQUE, or part of unique constraint/index)
 			const isColumnReferenceable = (column: Column, table: Table): boolean => {
-				// Check column-level PK or UNIQUE
-				if (column.isPrimaryKey || column.isUnique === true) {
+				// Check column-level PK or UNIQUE constraint
+				if (column.isPrimaryKey || column.isUniqueConstraint === true) {
 					return true;
 				}
 
@@ -617,8 +653,8 @@ export const App: React.FC = () => {
 			const column1IsPKOrUnique = isColumnReferenceable(column1, table1);
 			const column2IsPKOrUnique = isColumnReferenceable(column2, table2);
 
-			console.log('[FK Creation] Column 1 PK/UNIQUE:', column1IsPKOrUnique, `(PK: ${column1.isPrimaryKey}, UNIQUE: ${column1.isUnique})`);
-			console.log('[FK Creation] Column 2 PK/UNIQUE:', column2IsPKOrUnique, `(PK: ${column2.isPrimaryKey}, UNIQUE: ${column2.isUnique})`);
+			console.log('[FK Creation] Column 1 PK/UNIQUE:', column1IsPKOrUnique, `(PK: ${column1.isPrimaryKey}, UNIQUE: ${column1.isUniqueConstraint})`);
+			console.log('[FK Creation] Column 2 PK/UNIQUE:', column2IsPKOrUnique, `(PK: ${column2.isPrimaryKey}, UNIQUE: ${column2.isUniqueConstraint})`);
 
 			// ========================================================================
 			// MSSQL VALIDATION: Exactly one side must be PK or UNIQUE

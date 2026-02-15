@@ -16,7 +16,7 @@ import {
 	DialogContent,
 	DialogActions
 } from '@fluentui/react-components';
-import { KeyRegular, EditRegular, MoreVerticalRegular, DeleteRegular } from '@fluentui/react-icons';
+import { KeyRegular, EditRegular, MoreVerticalRegular, DeleteRegular, ShieldCheckmarkRegular } from '@fluentui/react-icons';
 import { Table } from '../types';
 
 interface TableNodeProps {
@@ -92,6 +92,10 @@ const useStyles = makeStyles({
 		color: tokens.colorPaletteBlueForeground2,
 		transform: 'rotate(180deg)',
 		display: 'inline-block',
+	},
+	uniqueIcon: {
+		fontSize: tokens.fontSizeBase200,
+		color: tokens.colorPaletteGreenForeground1,
 	},
 });
 
@@ -184,7 +188,9 @@ const TableNode: React.FC<TableNodeProps> = ({ data }) => {
 							isConnectable={true}
 						/>
 						<span className={styles.columnName}>
+						{/* Icon hierarchy: PK > UQ, then FK separately */}
 						{col.isPrimaryKey && <KeyRegular className={styles.keyIcon} />}
+						{!col.isPrimaryKey && col.isUniqueConstraint && <ShieldCheckmarkRegular className={styles.uniqueIcon} />}
 						{col.isForeignKey && <KeyRegular className={styles.fkIcon} />}
 						{col.name}
 						</span>
@@ -260,6 +266,7 @@ export default React.memo(TableNode, (prevProps, nextProps) => {
 			prevCol.type !== nextCol.type ||
 			prevCol.isPrimaryKey !== nextCol.isPrimaryKey ||
 			prevCol.isForeignKey !== nextCol.isForeignKey ||
+			prevCol.isUniqueConstraint !== nextCol.isUniqueConstraint ||
 			prevCol.isNullable !== nextCol.isNullable ||
 			prevCol.length !== nextCol.length ||
 			prevCol.precision !== nextCol.precision ||

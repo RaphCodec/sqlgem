@@ -43,7 +43,7 @@ export interface Column {
 	isPrimaryKey: boolean;
 	isForeignKey: boolean;
 	isNullable: boolean;
-	isUnique?: boolean; // Column has UNIQUE constraint or is part of a unique index
+	isUniqueConstraint?: boolean; // Column is part of a UNIQUE constraint
 	defaultValue?: string;
 	foreignKeyRef?: {
 		schema: string;

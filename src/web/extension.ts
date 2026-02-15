@@ -47,7 +47,7 @@ interface Column {
 	isPrimaryKey: boolean;
 	isForeignKey: boolean;
 	isNullable: boolean;
-	isUnique?: boolean;
+	isUniqueConstraint?: boolean;
 	defaultValue?: string;
 	foreignKeyRef?: {
 		schema: string;
@@ -515,7 +515,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 		// Add column-level UNIQUE constraints as inline constraints (deprecated pattern)
 		// Modern approach: use table.uniqueConstraints array instead
-		const uniqueColumns = table.columns.filter(c => c.isUnique && !c.isPrimaryKey);
+		const uniqueColumns = table.columns.filter(c => c.isUniqueConstraint && !c.isPrimaryKey);
 		if (uniqueColumns.length > 0) {
 			uniqueColumns.forEach(col => {
 				const ucName = col.uniqueConstraintName || `UQ_${table.name}_${col.name}`;

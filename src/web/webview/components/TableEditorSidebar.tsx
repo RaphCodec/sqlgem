@@ -223,6 +223,48 @@ export const TableEditorSidebar: React.FC<TableEditorSidebarProps> = ({
 	};
 
 	const handleSave = () => {
+		// Sync column-level flags with table-level structures before saving
+		// This ensures consistency between UI state and data model
+		
+		// Sync PRIMARY KEY: collect columns with isPrimaryKey = true
+		const pkColumns = localTable.columns
+			.filter(col => col.isPrimaryKey)
+			.map(col => col.name);
+		
+		if (pkColumns.length > 0) {
+			// Find if any PK column has a custom name, or use first one's name
+			const firstPkCol = localTable.columns.find(col => col.isPrimaryKey);
+			const pkName = firstPkCol?.pkName || `PK_${localTable.name}`;
+			
+			// Merge with existing primaryKey or create new one
+			localTable.primaryKey = {
+				name: pkName,
+				columns: pkColumns,
+				isClustered: localTable.primaryKey?.isClustered !== false // Default to clustered
+			};
+		} else {
+			// No PK columns, remove primaryKey
+			localTable.primaryKey = undefined;
+		}
+
+		// Sync UNIQUE CONSTRAINTS: collect single-column unique constraints from isUniqueConstraint flags
+		// Note: Multi-column unique constraints are managed via uniqueConstraints array directly
+		const singleColUniqueConstraints = localTable.columns
+			.filter(col => col.isUniqueConstraint && !col.isPrimaryKey) // Don't create UNIQUE for PK columns
+			.map(col => ({
+				name: col.uniqueConstraintName || `UQ_${localTable.name}_${col.name}`,
+				columns: [col.name]
+			}));
+		
+		// Merge with existing multi-column unique constraints
+		const existingMultiColUC = (localTable.uniqueConstraints || [])
+			.filter(uc => uc.columns.length > 1);
+		
+		localTable.uniqueConstraints = [
+			...singleColUniqueConstraints,
+			...existingMultiColUC
+		];
+
 		onSave(localSchemaName, originalTableName, localTable);
 		onClose();
 	};
@@ -451,8 +493,8 @@ export const TableEditorSidebar: React.FC<TableEditorSidebarProps> = ({
 												label="FK"
 											/>
 											<Checkbox
-												checked={col.isUnique || false}
-												onChange={(e, data) => updateColumn(index, 'isUnique', data.checked)}
+											checked={col.isUniqueConstraint || false}
+											onChange={(e, data) => updateColumn(index, 'isUniqueConstraint', data.checked)}
 												label="UNIQUE"
 											/>
 											<Button
@@ -465,7 +507,7 @@ export const TableEditorSidebar: React.FC<TableEditorSidebarProps> = ({
 										</div>
 									</div>
 
-									{(col.isPrimaryKey || col.isForeignKey || col.isUnique) && (
+								{(col.isPrimaryKey || col.isForeignKey || col.isUniqueConstraint) && (
 										<div className={styles.columnDetails}>
 											{col.isPrimaryKey && (
 												<div className={styles.constraintRow}>
@@ -479,7 +521,7 @@ export const TableEditorSidebar: React.FC<TableEditorSidebarProps> = ({
 													/>
 												</div>
 											)}
-											{col.isUnique && !col.isPrimaryKey && (
+											{col.isUniqueConstraint && !col.isPrimaryKey && (
 												<div className={styles.constraintRow}>
 													<Label size="small" style={{ width: '100px' }}>UNIQUE Name:</Label>
 													<Input

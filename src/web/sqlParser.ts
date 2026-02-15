@@ -12,7 +12,7 @@ export interface Column {
 	isPrimaryKey: boolean;
 	isForeignKey: boolean;
 	isNullable: boolean;
-	isUnique?: boolean;
+	isUniqueConstraint?: boolean;
 	defaultValue?: string;
 	foreignKeyRef?: {
 		schema: string;
@@ -258,7 +258,7 @@ export function parseSQLToDatabase(sqlContent: string, databaseName: string): Da
 			isPrimaryKey: isPK,
 			isForeignKey: isForeignKey,
 			isNullable: isNullable,
-			isUnique: hasInlineUnique,
+			isUniqueConstraint: hasInlineUnique,
 			defaultValue: defaultValue,
 			pkName: isPK && foundPKConstraint ? pkConstraintName : undefined,
 			foreignKeyRef: foreignKeyRef,
@@ -270,7 +270,7 @@ export function parseSQLToDatabase(sqlContent: string, databaseName: string): Da
 			for (const colName of uc.columns) {
 				const col = columns.find(c => c.name === colName);
 				if (col) {
-					col.isUnique = true;
+					col.isUniqueConstraint = true;
 					col.uniqueConstraintName = uc.constraintName;
 				}
 			}
@@ -388,6 +388,25 @@ export function parseSQLToDatabase(sqlContent: string, databaseName: string): Da
 		}
 		const t = s.tables.find(table => table.name === indexTable);
 		if (!t) {
+			continue;
+		}
+
+		// For single-column UNIQUE indexes, treat them as UNIQUE constraints
+		// This ensures the icon shows and the column appears as unique in the UI
+		if (isUnique && indexColumns.length === 1) {
+			const columnName = indexColumns[0];
+			const column = t.columns.find(c => c.name === columnName);
+			if (column) {
+				column.isUniqueConstraint = true;
+				// Convert UX_ prefix to UQ_ prefix for proper constraint naming
+				let constraintName = indexName;
+				if (constraintName.startsWith('UX_')) {
+					constraintName = 'UQ_' + constraintName.substring(3);
+				}
+				column.uniqueConstraintName = constraintName;
+			}
+			// Don't add single-column unique indexes to the indexes array
+			// They'll be regenerated as UNIQUE constraints during SQL generation
 			continue;
 		}
 
