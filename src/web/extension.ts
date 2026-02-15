@@ -40,6 +40,7 @@ interface Column {
 }
 
 let currentDatabase: Database | null = null;
+let currentDatabaseFolderUri: vscode.Uri | null = null;
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
@@ -167,8 +168,11 @@ export function activate(context: vscode.ExtensionContext) {
 				}]
 			};
 
+			// Track the database folder
+			currentDatabaseFolderUri = dbFolderUri;
+
 			// Create initial database.sql file
-			await writeDatabaseSQL(workspaceFolders[0].uri);
+			await writeDatabaseSQL();
 			
 			panel.webview.postMessage({
 				command: 'updateDatabase',
@@ -202,26 +206,35 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 
 			const folderUri = vscode.Uri.joinPath(workspaceFolders[0].uri, pick);
-			const folderEntries = await vscode.workspace.fs.readDirectory(folderUri);
-			const sqlFiles = folderEntries.filter(([name, type]) => type === vscode.FileType.File && name.toLowerCase().endsWith('.sql')).map(([name]) => name);
+			const databaseSqlUri = vscode.Uri.joinPath(folderUri, 'database.sql');
 
 			console.log(`Loading database from folder: ${pick}`);
-			console.log(`Found ${sqlFiles.length} SQL files:`, sqlFiles);
+			console.log(`Looking for database.sql file...`);
 
-			let combinedSql = '';
-			for (const f of sqlFiles) {
-				const fileUri = vscode.Uri.joinPath(folderUri, f);
-				const bytes = await vscode.workspace.fs.readFile(fileUri);
-				const content = new TextDecoder().decode(bytes);
-				console.log(`Read file ${f}: ${content.length} bytes`);
-				combinedSql += content + '\n';
+			// Check if database.sql exists
+			let databaseSqlExists = false;
+			try {
+				await vscode.workspace.fs.stat(databaseSqlUri);
+				databaseSqlExists = true;
+			} catch {
+				databaseSqlExists = false;
 			}
 
-			console.log(`Total SQL content: ${combinedSql.length} bytes`);
-			console.log('SQL preview (first 500 chars):', combinedSql.substring(0, 500));
+			if (!databaseSqlExists) {
+				vscode.window.showErrorMessage(
+					`database.sql file is missing in the selected folder "${pick}". Please add the file to load the database.`
+				);
+				return;
+			}
+
+			// Read database.sql file
+			const bytes = await vscode.workspace.fs.readFile(databaseSqlUri);
+			const sqlContent = new TextDecoder().decode(bytes);
+			console.log(`Read database.sql: ${sqlContent.length} bytes`);
+			console.log('SQL preview (first 500 chars):', sqlContent.substring(0, 500));
 
 			// Parse SQL content using enhanced parser (supports IF NOT EXISTS patterns)
-			const db = parseSQLToDatabase(combinedSql, pick);
+			const db = parseSQLToDatabase(sqlContent, pick);
 
 			console.log(`Parsed database: ${db.name}`);
 			console.log(`Schemas found: ${db.schemas.length}`, db.schemas.map(s => `${s.name} (${s.tables.length} tables)`));
@@ -237,11 +250,12 @@ export function activate(context: vscode.ExtensionContext) {
 			});
 
 			currentDatabase = db;
+			currentDatabaseFolderUri = folderUri;
 
 			panel.webview.postMessage({ command: 'updateDatabase', database: currentDatabase });
 			console.log('Sent updateDatabase message to webview');
 			
-			vscode.window.showInformationMessage(`Loaded database folder "${pick}" (${sqlFiles.length} .sql files parsed)`);
+			vscode.window.showInformationMessage(`Loaded database "${pick}" from database.sql`);
 		} catch (error) {
 			console.error('Error loading database:', error);
 			vscode.window.showErrorMessage(`Failed to load database: ${error}`);
@@ -555,15 +569,14 @@ export function activate(context: vscode.ExtensionContext) {
 			return;
 		}
 
-		const workspaceFolders = vscode.workspace.workspaceFolders;
-		if (!workspaceFolders) {
-			vscode.window.showErrorMessage('No workspace folder open');
+		if (!currentDatabaseFolderUri) {
+			vscode.window.showErrorMessage('Database folder not set. Please create or load a database first.');
 			return;
 		}
 
 		try {
-			await writeDatabaseSQL(workspaceFolders[0].uri, useIfNotExists);
-			vscode.window.showInformationMessage(`Database "${currentDatabase.name}" saved successfully`);
+			await writeDatabaseSQL(useIfNotExists);
+			vscode.window.showInformationMessage(`Database "${currentDatabase.name}" saved to database.sql`);
 		} catch (error) {
 			vscode.window.showErrorMessage(`Failed to save database: ${error}`);
 		}
@@ -582,12 +595,13 @@ export function activate(context: vscode.ExtensionContext) {
 		});
 	}
 
-	async function writeDatabaseSQL(workspaceUri: vscode.Uri, useIfNotExists: boolean = false): Promise<void> {
-		if (!currentDatabase) {
+	async function writeDatabaseSQL(useIfNotExists: boolean = false): Promise<void> {
+		if (!currentDatabase || !currentDatabaseFolderUri) {
 			return;
 		}
 
-		const dbFileUri = vscode.Uri.joinPath(workspaceUri, currentDatabase.name, `${currentDatabase.name}.sql`);
+		// Save to database.sql in the current database folder
+		const dbFileUri = vscode.Uri.joinPath(currentDatabaseFolderUri, 'database.sql');
 		const sqlContent = generateDatabaseSQL(useIfNotExists);
 		const encoder = new TextEncoder();
 		await vscode.workspace.fs.writeFile(dbFileUri, encoder.encode(sqlContent));
