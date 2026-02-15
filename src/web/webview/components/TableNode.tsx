@@ -87,6 +87,12 @@ const useStyles = makeStyles({
 		fontSize: tokens.fontSizeBase200,
 		color: tokens.colorPaletteDarkOrangeForeground1,
 	},
+	fkIcon: {
+		fontSize: tokens.fontSizeBase200,
+		color: tokens.colorPaletteBlueForeground2,
+		transform: 'rotate(180deg)',
+		display: 'inline-block',
+	},
 });
 
 const TableNode: React.FC<TableNodeProps> = ({ data }) => {
@@ -178,8 +184,9 @@ const TableNode: React.FC<TableNodeProps> = ({ data }) => {
 							isConnectable={true}
 						/>
 						<span className={styles.columnName}>
-							{col.isPrimaryKey && <KeyRegular className={styles.keyIcon} />}
-							{col.name}
+						{col.isPrimaryKey && <KeyRegular className={styles.keyIcon} />}
+						{col.isForeignKey && <KeyRegular className={styles.fkIcon} />}
+						{col.name}
 						</span>
 						<span className={styles.columnType}>
 							{getFullType(col)}
@@ -229,13 +236,40 @@ const TableNode: React.FC<TableNodeProps> = ({ data }) => {
 };
 
 // Memoize component to prevent unnecessary re-renders
+// Deep comparison of column data to ensure icons update when PK/FK status changes
 export default React.memo(TableNode, (prevProps, nextProps) => {
-	// Only re-render if table data or schema name changes
-	return (
-		prevProps.data.schemaName === nextProps.data.schemaName &&
-		prevProps.data.table.name === nextProps.data.table.name &&
-		prevProps.data.table.columns.length === nextProps.data.table.columns.length &&
-		prevProps.data.onEdit === nextProps.data.onEdit &&
-		prevProps.data.onDelete === nextProps.data.onDelete
-	);
+	// Check if basic table info changed
+	if (
+		prevProps.data.schemaName !== nextProps.data.schemaName ||
+		prevProps.data.table.name !== nextProps.data.table.name ||
+		prevProps.data.table.columns.length !== nextProps.data.table.columns.length ||
+		prevProps.data.onEdit !== nextProps.data.onEdit ||
+		prevProps.data.onDelete !== nextProps.data.onDelete
+	) {
+		return false; // Re-render needed
+	}
+
+	// Deep check: compare each column's key properties
+	// This ensures PK and FK icons update immediately when column properties change
+	for (let i = 0; i < prevProps.data.table.columns.length; i++) {
+		const prevCol = prevProps.data.table.columns[i];
+		const nextCol = nextProps.data.table.columns[i];
+		
+		if (
+			prevCol.name !== nextCol.name ||
+			prevCol.type !== nextCol.type ||
+			prevCol.isPrimaryKey !== nextCol.isPrimaryKey ||
+			prevCol.isForeignKey !== nextCol.isForeignKey ||
+			prevCol.isNullable !== nextCol.isNullable ||
+			prevCol.length !== nextCol.length ||
+			prevCol.precision !== nextCol.precision ||
+			prevCol.scale !== nextCol.scale ||
+			JSON.stringify(prevCol.foreignKeyRef) !== JSON.stringify(nextCol.foreignKeyRef)
+		) {
+			return false; // Re-render needed
+		}
+	}
+
+	// No changes detected, skip re-render
+	return true;
 });
