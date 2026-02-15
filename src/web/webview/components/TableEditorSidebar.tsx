@@ -163,6 +163,11 @@ export const TableEditorSidebar: React.FC<TableEditorSidebarProps> = ({
 	const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 	const [selectedColumnIndex, setSelectedColumnIndex] = useState<number | null>(null);
 	const [selectedTab, setSelectedTab] = useState<string>('columns');
+	
+	// Temporary input state (allows empty strings during editing)
+	const [lengthInput, setLengthInput] = useState<string>('');
+	const [precisionInput, setPrecisionInput] = useState<string>('');
+	const [scaleInput, setScaleInput] = useState<string>('');
 
 	const updateTableName = (name: string) => {
 		setLocalTable({ ...localTable, name });
@@ -503,8 +508,26 @@ export const TableEditorSidebar: React.FC<TableEditorSidebarProps> = ({
 											<Label>Length</Label>
 											<Input
 												type="number"
-												value={String(selectedColumn.length || (selectedColumn.type.includes('VAR') ? 255 : 1))}
-												onChange={(e) => updateColumn(selectedColumnIndex, 'length', parseInt(e.target.value) || 255)}
+											value={lengthInput}
+											onFocus={() => {
+												// Initialize with current value when focused
+												setLengthInput(String(selectedColumn.length || (selectedColumn.type.includes('VAR') ? 255 : 1)));
+											}}
+											onChange={(e) => {
+												// Allow temporary empty state and any numeric input
+												const value = e.target.value;
+												if (value === '' || /^\d+$/.test(value)) {
+													setLengthInput(value);
+												}
+											}}
+											onBlur={() => {
+												// Validate and apply default on blur
+												const parsed = parseInt(lengthInput);
+												const defaultValue = selectedColumn.type.includes('VAR') ? 255 : 1;
+												const finalValue = isNaN(parsed) || parsed <= 0 ? defaultValue : parsed;
+												updateColumn(selectedColumnIndex, 'length', finalValue);
+												setLengthInput(String(finalValue));
+											}}
 											/>
 										</div>
 									)}
@@ -514,16 +537,50 @@ export const TableEditorSidebar: React.FC<TableEditorSidebarProps> = ({
 												<Label>Precision (total digits)</Label>
 												<Input
 													type="number"
-													value={String(selectedColumn.precision || 18)}
-													onChange={(e) => updateColumn(selectedColumnIndex, 'precision', parseInt(e.target.value) || 18)}
-												/>
-											</div>
-											<div>
-												<Label>Scale (decimal digits)</Label>
-												<Input
-													type="number"
-													value={String(selectedColumn.scale || 2)}
-													onChange={(e) => updateColumn(selectedColumnIndex, 'scale', parseInt(e.target.value) || 2)}
+												value={precisionInput}
+												onFocus={() => {
+													// Initialize with current value when focused
+													setPrecisionInput(String(selectedColumn.precision || 18));
+												}}
+												onChange={(e) => {
+													// Allow temporary empty state and any numeric input
+													const value = e.target.value;
+													if (value === '' || /^\d+$/.test(value)) {
+														setPrecisionInput(value);
+													}
+												}}
+												onBlur={() => {
+													// Validate and apply default on blur
+													const parsed = parseInt(precisionInput);
+													const finalValue = isNaN(parsed) || parsed <= 0 ? 18 : parsed;
+													updateColumn(selectedColumnIndex, 'precision', finalValue);
+													setPrecisionInput(String(finalValue));
+												}}
+											/>
+										</div>
+										<div>
+											<Label>Scale (decimal digits)</Label>
+											<Input
+												type="number"
+												value={scaleInput}
+												onFocus={() => {
+													// Initialize with current value when focused
+													setScaleInput(String(selectedColumn.scale || 2));
+												}}
+												onChange={(e) => {
+													// Allow temporary empty state and any numeric input
+													const value = e.target.value;
+													if (value === '' || /^\d+$/.test(value)) {
+														setScaleInput(value);
+													}
+												}}
+												onBlur={() => {
+													// Validate and apply default on blur
+													const parsed = parseInt(scaleInput);
+													const finalValue = isNaN(parsed) || parsed < 0 ? 2 : parsed;
+													updateColumn(selectedColumnIndex, 'scale', finalValue);
+													setScaleInput(String(finalValue));
+												}}
 												/>
 											</div>
 										</>
