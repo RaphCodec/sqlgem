@@ -133,6 +133,9 @@ export const App: React.FC = () => {
 	const [showFKNames, setShowFKNames] = useState(() => {
 		return localStorage.getItem('sqlgem-show-fk-names') === 'true';
 	});
+	const [useIfNotExists, setUseIfNotExists] = useState(() => {
+		return localStorage.getItem('sqlgem-use-if-not-exists') === 'true';
+	});
 	const [currentDatabase, setCurrentDatabase] = useState<Database | null>(null);
 	const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
 	const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -259,11 +262,11 @@ export const App: React.FC = () => {
 	}, [currentDatabase]);
 
 	const handleSaveDatabase = () => {
-		vscode.postMessage({ command: 'saveDatabase' });
+		vscode.postMessage({ command: 'saveDatabase', useIfNotExists: useIfNotExists });
 	};
 
 	const handlePreviewSQL = () => {
-		vscode.postMessage({ command: 'previewSQL' });
+		vscode.postMessage({ command: 'previewSQL', useIfNotExists: useIfNotExists });
 	};
 
 	const updateNodesFromDatabase = useCallback((database: Database | null) => {
@@ -425,6 +428,12 @@ export const App: React.FC = () => {
 		const newMode = !showFKNames;
 		setShowFKNames(newMode);
 		localStorage.setItem('sqlgem-show-fk-names', String(newMode));
+	};
+
+	const toggleIfNotExists = () => {
+		const newMode = !useIfNotExists;
+		setUseIfNotExists(newMode);
+		localStorage.setItem('sqlgem-use-if-not-exists', String(newMode));
 	};
 
 	const handleCreateDatabase = () => {
@@ -599,6 +608,15 @@ export const App: React.FC = () => {
 				>
 					Preview SQL
 				</Button>
+
+				<div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingLeft: '12px', borderLeft: `1px solid ${tokens.colorNeutralStroke2}` }}>
+					<Checkbox 
+						checked={useIfNotExists}
+						onChange={toggleIfNotExists}
+						label="Safe Create"
+						title="Generate idempotent SQL that's safe to run multiple times"
+					/>
+				</div>
 
 				<Button
 				icon={<TagRegular />}
