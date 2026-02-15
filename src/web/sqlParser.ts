@@ -12,6 +12,7 @@ export interface Column {
 	isPrimaryKey: boolean;
 	isForeignKey: boolean;
 	isNullable: boolean;
+	isUnique?: boolean;
 	defaultValue?: string;
 	foreignKeyRef?: {
 		schema: string;
@@ -20,6 +21,7 @@ export interface Column {
 	};
 	pkName?: string;
 	fkConstraintName?: string;
+	uniqueConstraintName?: string;
 }
 
 export interface Table {
@@ -119,6 +121,12 @@ export function parseSQLToDatabase(sqlContent: string, databaseName: string): Da
 		let pkConstraintName = '';
 		const pkColumns: string[] = [];
 		
+		// Store UNIQUE constraint info to apply after column parsing
+		const uniqueConstraints: Array<{
+			constraintName: string;
+			columns: string[];
+		}> = [];
+		
 		// Store FK constraint info to apply after column parsing
 		const fkConstraints: Array<{
 			constraintName: string;
@@ -155,8 +163,18 @@ export function parseSQLToDatabase(sqlContent: string, databaseName: string): Da
 				continue;
 			}
 
-			// Skip any remaining CONSTRAINT definitions (UNIQUE, CHECK, etc.)
-			// These are handled separately or not needed for the diagram
+			// Check for UNIQUE constraint definition
+			const uniqueConstraintMatch = /CONSTRAINT\s+\[?([^\]\s]+)\]?\s+UNIQUE\s*\(([^)]+)\)/i.exec(line);
+			if (uniqueConstraintMatch) {
+				const uniqueCols = uniqueConstraintMatch[2].split(',').map(c => c.trim().replace(/[\[\]]/g, ''));
+				uniqueConstraints.push({
+					constraintName: uniqueConstraintMatch[1],
+					columns: uniqueCols
+				});
+				continue;
+			}
+
+			// Skip any remaining CONSTRAINT definitions (CHECK, etc.)
 			if (/^\s*CONSTRAINT\s+/i.test(line)) {
 				continue;
 			}
@@ -184,6 +202,9 @@ export function parseSQLToDatabase(sqlContent: string, databaseName: string): Da
 			const isPK = /PRIMARY\s+KEY/i.test(rest) || pkColumns.includes(colName);
 			const isNotNull = /NOT\s+NULL/i.test(rest);
 			const isNullable = !isNotNull && !isPK;
+			
+			// Check for inline UNIQUE constraint
+			const hasInlineUnique = /\bUNIQUE\b/i.test(rest);
 
 			// Extract default value - handles both simple values and function calls
 			const defaultMatch = /DEFAULT\s+([^\s,]+(?:\s*\([^)]*\))?)/i.exec(rest);
@@ -215,12 +236,24 @@ export function parseSQLToDatabase(sqlContent: string, databaseName: string): Da
 			isPrimaryKey: isPK,
 			isForeignKey: isForeignKey,
 			isNullable: isNullable,
+			isUnique: hasInlineUnique,
 			defaultValue: defaultValue,
 			pkName: isPK && foundPKConstraint ? pkConstraintName : undefined,
 			foreignKeyRef: foreignKeyRef,
 			});
 		}
 
+		// Apply UNIQUE constraints from CONSTRAINT definitions to columns
+		for (const uc of uniqueConstraints) {
+			for (const colName of uc.columns) {
+				const col = columns.find(c => c.name === colName);
+				if (col) {
+					col.isUnique = true;
+					col.uniqueConstraintName = uc.constraintName;
+				}
+			}
+		}
+		
 		// Apply FK constraints from CONSTRAINT definitions to columns
 		for (const fk of fkConstraints) {
 			const col = columns.find(c => c.name === fk.sourceColumn);

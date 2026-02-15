@@ -24,6 +24,7 @@ export interface Column {
 	isPrimaryKey: boolean;
 	isForeignKey: boolean;
 	isNullable: boolean;
+	isUnique?: boolean; // Column has UNIQUE constraint or is part of a unique index
 	defaultValue?: string;
 	foreignKeyRef?: {
 		schema: string;
@@ -32,6 +33,7 @@ export interface Column {
 	};
 	pkName?: string;
 	fkConstraintName?: string;
+	uniqueConstraintName?: string; // Name of UNIQUE constraint if applicable
 }
 
 export interface VSCodeAPI {

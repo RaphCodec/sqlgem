@@ -471,13 +471,294 @@ export const App: React.FC = () => {
 		}
 	}, [nodes, edges, currentDatabase, setNodes, fitView]);
 
+	/**
+	 * Handle-agnostic, bidirectional FK creation callback
+	 * 
+	 * Features:
+	 * - Works regardless of drag direction (source→target or target→source)
+	 * - Works regardless of handle side (left or right)
+	 * - Automatically detects which column should be FK vs referenced based on PK/UNIQUE constraints
+	 * - Enforces MSSQL foreign key rules
+	 * - Validates data type compatibility
+	 * - Prevents duplicate and circular foreign keys
+	 * 
+	 * Logic:
+	 * 1. Parse both handle IDs to extract schema.table.column info
+	 * 2. Check which column has PK or UNIQUE constraint
+	 * 3. Auto-assign FK role: column with PK/UNIQUE becomes referenced, other becomes FK
+	 * 4. Validate: exactly one must be PK/UNIQUE, types must match, no duplicates
+	 * 5. Create FK with auto-generated constraint name
+	 * 
+	 * This ensures users never need to worry about connection direction - they can
+	 * simply drag from any column handle to any other, and the system determines
+	 * the correct FK relationship automatically.
+	 */
 	const onConnect = useCallback(
-		(params: Connection | Edge) => setEdges((eds) => addEdge(params, eds)),
-		[setEdges]
-	);
+		(connection: Connection) => {
+			if (!currentDatabase) {
+				console.log('[FK Creation] No database available');
+				return;
+			}
 
-	// Memoize ReactFlow props for performance
-	const proOptions = useMemo(() => ({ hideAttribution: true }), []);
+			// Parse handle: "schema.table-column-source/target"
+			const sourceHandle = connection.sourceHandle;
+			const targetHandle = connection.targetHandle;
+			// Extract schema, table, and column from handles
+			const parseHandle = (handle: string): { schema: string; table: string; column: string } | null => {
+				const parts = handle.split('-');
+				if (parts.length < 3) return null;
+				
+				const schemaTable = parts[0];
+				const column = parts.slice(1, -1).join('-'); // Handle columns with hyphens
+				
+				const schemaParts = schemaTable.split('.');
+				if (schemaParts.length < 2) return null;
+				
+				const schema = schemaParts[0];
+				const table = schemaParts.slice(1).join('.'); // Handle tables with dots
+				
+				return { schema, table, column };
+			};
+
+			// Note: We intentionally call them "side1" and "side2" instead of "source" and "target"
+			// because we don't yet know which will be the FK and which will be referenced.
+			// The system determines direction based on PK/UNIQUE constraints, not drag direction.
+			if (!sourceHandle || !targetHandle) {
+				console.log('[FK Creation] Missing handle IDs');
+				return;
+			}
+			
+			const side1 = parseHandle(sourceHandle);
+			const side2 = parseHandle(targetHandle);
+
+			if (!side1 || !side2) {
+				console.log('[FK Creation] Invalid handle format');
+				vscode.postMessage({ 
+					command: 'showError', 
+					text: 'Invalid connection handles' 
+				});
+				return;
+			}
+
+			console.log('[FK Creation] Side 1 (drag source):', side1);
+			console.log('[FK Creation] Side 2 (drag target):', side2);
+
+			// Find schemas and tables for both sides
+			const schema1 = currentDatabase.schemas.find(s => s.name === side1.schema);
+			const schema2 = currentDatabase.schemas.find(s => s.name === side2.schema);
+
+			if (!schema1 || !schema2) {
+				console.log('[FK Creation] Schema not found');
+				vscode.postMessage({ 
+					command: 'showError', 
+					text: 'Schema not found' 
+				});
+				return;
+			}
+
+			const table1 = schema1.tables.find(t => t.name === side1.table);
+			const table2 = schema2.tables.find(t => t.name === side2.table);
+
+			if (!table1 || !table2) {
+				console.log('[FK Creation] Table not found');
+				vscode.postMessage({ 
+					command: 'showError', 
+					text: 'Table not found' 
+				});
+				return;
+			}
+
+			const column1 = table1.columns.find(c => c.name === side1.column);
+			const column2 = table2.columns.find(c => c.name === side2.column);
+
+			if (!column1 || !column2) {
+				console.log('[FK Creation] Column not found');
+				vscode.postMessage({ 
+					command: 'showError', 
+					text: 'Column not found' 
+				});
+				return;
+			}
+
+			// Check which columns are PK/UNIQUE (referenced columns must have unique constraint)
+			const column1IsPKOrUnique = column1.isPrimaryKey || column1.isUnique === true;
+			const column2IsPKOrUnique = column2.isPrimaryKey || column2.isUnique === true;
+
+			console.log('[FK Creation] Column 1 PK/UNIQUE:', column1IsPKOrUnique, `(PK: ${column1.isPrimaryKey}, UNIQUE: ${column1.isUnique})`);
+			console.log('[FK Creation] Column 2 PK/UNIQUE:', column2IsPKOrUnique, `(PK: ${column2.isPrimaryKey}, UNIQUE: ${column2.isUnique})`);
+
+			// ========================================================================
+			// MSSQL VALIDATION: Exactly one side must be PK or UNIQUE
+			// This ensures referential integrity - FK must point to a unique column
+			// ========================================================================
+			
+			if (!column1IsPKOrUnique && !column2IsPKOrUnique) {
+				console.log('[FK Creation] Neither column is PK or UNIQUE');
+				vscode.postMessage({ 
+					command: 'showError', 
+					text: 'One column must be PRIMARY KEY or UNIQUE. Referenced column must have a unique constraint.' 
+				});
+				return;
+			}
+
+			if (column1IsPKOrUnique && column2IsPKOrUnique) {
+				console.log('[FK Creation] Both columns are PK or UNIQUE');
+				vscode.postMessage({ 
+					command: 'showError', 
+					text: 'Ambiguous relationship: only one column may be the referenced key. Both columns are PRIMARY KEY or UNIQUE.' 
+				});
+				return;
+			}
+
+			// ========================================================================
+			// INTELLIGENT DIRECTION DETECTION
+			// This is the core of handle-agnostic FK creation.
+			// Regardless of which handle the user dragged from or to, we determine
+			// the correct FK direction based solely on column constraints.
+			// ========================================================================
+			
+			let fkColumn: Column;
+			let fkSide: { schema: string; table: string; column: string };
+			let fkTable: Table;
+			let refColumn: Column;
+			let refSide: { schema: string; table: string; column: string };
+			let refTable: Table;
+
+			if (column1IsPKOrUnique) {
+				// Column 1 has PK/UNIQUE → it's the referenced column
+				// Column 2 is the foreign key column
+				refSide = side1;
+				refTable = table1;
+				refColumn = column1;
+				
+				fkSide = side2;
+				fkTable = table2;
+				fkColumn = column2;
+			} else {
+				// Column 2 has PK/UNIQUE → it's the referenced column
+				// Column 1 is the foreign key column
+				refSide = side2;
+				refTable = table2;
+				refColumn = column2;
+				
+				fkSide = side1;
+				fkTable = table1;
+				fkColumn = column1;
+			}
+
+			// Direction has been intelligently determined - drag direction is now irrelevant
+			console.log('[FK Creation] ✓ Direction auto-detected (handle-agnostic):', {
+				fk: `${fkSide.schema}.${fkSide.table}.${fkSide.column}`,
+				references: `${refSide.schema}.${refSide.table}.${refSide.column}`,
+				basis: column1IsPKOrUnique ? 'side1 has PK/UNIQUE' : 'side2 has PK/UNIQUE'
+			});
+
+			// Validation: Check if FK column already has a FK
+			if (fkColumn.isForeignKey) {
+				// Check if it's the same relationship
+				if (fkColumn.foreignKeyRef && 
+					fkColumn.foreignKeyRef.schema === refSide.schema &&
+					fkColumn.foreignKeyRef.table === refSide.table &&
+					fkColumn.foreignKeyRef.column === refSide.column) {
+					console.log('[FK Creation] Duplicate FK relationship');
+					vscode.postMessage({ 
+						command: 'showError', 
+						text: `Foreign key already exists between ${fkSide.table}.${fkSide.column} and ${refSide.table}.${refSide.column}` 
+					});
+					return;
+				}
+				console.log('[FK Creation] FK column already has FK to different table');
+				vscode.postMessage({ 
+					command: 'showError', 
+					text: `Column "${fkColumn.name}" already has a foreign key constraint. Remove the existing FK first.` 
+				});
+				return;
+			}
+
+			// Additional validation: Check if referenced column has a FK pointing back (prevent circular)
+			if (refColumn.isForeignKey && 
+				refColumn.foreignKeyRef &&
+				refColumn.foreignKeyRef.schema === fkSide.schema &&
+				refColumn.foreignKeyRef.table === fkSide.table &&
+				refColumn.foreignKeyRef.column === fkSide.column) {
+				console.log('[FK Creation] Circular FK detected');
+				vscode.postMessage({ 
+					command: 'showError', 
+					text: `Cannot create circular foreign key: ${refSide.table}.${refSide.column} already references ${fkSide.table}.${fkSide.column}` 
+				});
+				return;
+			}
+
+			// Validation: Check compatible data types
+			const normalizeType = (type: string) => type.replace(/\(.*\)/, '').toUpperCase();
+			if (normalizeType(fkColumn.type) !== normalizeType(refColumn.type)) {
+				console.log('[FK Creation] Incompatible data types');
+				vscode.postMessage({ 
+					command: 'showError', 
+					text: `Data types are incompatible: ${fkColumn.type} vs ${refColumn.type}. Both columns must have matching types.` 
+				});
+				return;
+			}
+
+			// Create FK: Update FK column
+			const updatedColumns = fkTable.columns.map(col => {
+				if (col.name === fkSide.column) {
+					return {
+						...col,
+						isForeignKey: true,
+						foreignKeyRef: {
+							schema: refSide.schema,
+							table: refSide.table,
+							column: refSide.column
+						},
+						// Auto-generate FK constraint name using default naming convention
+						fkConstraintName: `FK_${fkSide.table}_${fkSide.column}`
+					};
+				}
+				return col;
+			});
+
+			const updatedTable = { ...fkTable, columns: updatedColumns };
+
+			console.log('[FK Creation] Creating FK:', {
+				from: `${fkSide.schema}.${fkSide.table}.${fkSide.column}`,
+				to: `${refSide.schema}.${refSide.table}.${refSide.column}`,
+				constraint: `FK_${fkSide.table}_${fkSide.column}`
+			});
+
+			// Update via extension (same underlying method as button-based FK creation)
+			vscode.postMessage({
+				command: 'updateTable',
+				schemaName: fkSide.schema,
+				oldTableName: fkSide.table,
+				table: updatedTable,
+			});
+
+			// Update local state immediately for responsive UI
+			if (currentDatabase) {
+				const updatedDatabase = {
+					...currentDatabase,
+					schemas: currentDatabase.schemas.map(schema => {
+						if (schema.name === fkSide.schema) {
+							return {
+								...schema,
+								tables: schema.tables.map(table => 
+									table.name === fkSide.table ? updatedTable : table
+								)
+							};
+						}
+						return schema;
+					})
+				};
+
+				setCurrentDatabase(updatedDatabase);
+				updateNodesFromDatabase(updatedDatabase);
+			}
+
+		console.log('[FK Creation] ✓ FK created successfully via handle-agnostic bidirectional logic');
+	},
+	[currentDatabase, setCurrentDatabase, updateNodesFromDatabase]
+);
 
 	const toggleDarkMode = () => {
 		const newMode = !isDarkMode;
@@ -747,6 +1028,9 @@ export const App: React.FC = () => {
 					onEdgesChange={onEdgesChange} 
 					onConnect={onConnect} 
 					nodeTypes={nodeTypes}
+					connectionMode={"loose" as any}
+					connectionLineType={"smoothstep" as any}
+					connectionLineStyle={{ stroke: tokens.colorBrandBackground, strokeWidth: 2 }}
 					nodesDraggable={true}
 					nodesConnectable={true}
 					elementsSelectable={true}
@@ -808,4 +1092,5 @@ export const App: React.FC = () => {
 			</Dialog>
 		</div>
 	</FluentProvider>
-);};
+	);
+};

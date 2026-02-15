@@ -169,11 +169,13 @@ const TableNode: React.FC<TableNodeProps> = ({ data }) => {
 			<div className={styles.columns}>
 				{table.columns.map((col, index) => (
 					<div key={index} className={styles.columnRow}>
+						{/* Left handle - supports both source and target for bidirectional connections */}
 						<Handle
 							type="target"
 							position={Position.Left}
 							id={`${tableId}-${col.name}-target`}
 							style={{ left: -8, top: '50%' }}
+							isConnectable={true}
 						/>
 						<span className={styles.columnName}>
 							{col.isPrimaryKey && <KeyRegular className={styles.keyIcon} />}
@@ -183,11 +185,13 @@ const TableNode: React.FC<TableNodeProps> = ({ data }) => {
 							{getFullType(col)}
 							{!col.isNullable && ' NOT NULL'}
 						</span>
+						{/* Right handle - supports both source and target for bidirectional connections */}
 						<Handle
 							type="source"
 							position={Position.Right}
 							id={`${tableId}-${col.name}-source`}
 							style={{ right: -8, top: '50%' }}
+							isConnectable={true}
 						/>
 					</div>
 				))}
