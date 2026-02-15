@@ -829,6 +829,132 @@ export const App: React.FC = () => {
 	[currentDatabase, setCurrentDatabase, updateNodesFromDatabase]
 );
 
+// Handle edge changes (detect removals to remove FK from schema)
+const handleEdgesChange = useCallback((changes: any[]) => {
+	if (!currentDatabase) {
+		// Delegate to default handler to keep UI in sync
+		onEdgesChange(changes);
+		return;
+	}
+
+	const removedChanges = changes.filter((c: any) => c.type === 'remove');
+	if (removedChanges.length === 0) {
+		onEdgesChange(changes);
+		return;
+	}
+
+	// Helper to parse handle ids created as `${schema}.${table}-${column}-source|target`
+	const parseHandle = (handle: string | null | undefined, nodeId: string) => {
+		if (!handle) return null;
+		try {
+			// Remove trailing '-source' or '-target'
+			const base = handle.endsWith('-source') ? handle.slice(0, -7) : handle.endsWith('-target') ? handle.slice(0, -7) : handle;
+			// base is like "schema.table-column" (column may contain dashes)
+			const prefix = `${nodeId}-`;
+			if (base.startsWith(prefix)) {
+				return base.slice(prefix.length);
+			}
+			// Fallback: take last dash-separated segment
+			const parts = base.split('-');
+			return parts.slice(1).join('-') || parts[parts.length - 1];
+		} catch (e) {
+			return null;
+		}
+	};
+
+	// Process each removed edge
+	removedChanges.forEach((chg: any) => {
+		const removedEdge = edges.find(e => e.id === chg.id);
+		if (!removedEdge) return;
+
+		const sourceNode = removedEdge.source; // schema.table
+		const targetNode = removedEdge.target; // schema.table
+
+		const srcParts = sourceNode.split('.');
+		const tgtParts = targetNode.split('.');
+		if (srcParts.length < 2 || tgtParts.length < 2) return;
+
+		const srcSchema = srcParts[0];
+		const srcTable = srcParts.slice(1).join('.');
+		const tgtSchema = tgtParts[0];
+		const tgtTable = tgtParts.slice(1).join('.');
+
+		const sourceColumn = parseHandle(removedEdge.sourceHandle, sourceNode);
+		const targetColumn = parseHandle(removedEdge.targetHandle, targetNode);
+
+		// Determine which side was FK (either source column or target column may be FK)
+		// Try clearing FK from source column if it matched
+		const updatedDb = {
+			...currentDatabase,
+			schemas: currentDatabase.schemas.map(s => ({
+				...s,
+				tables: s.tables.map(t => ({ ...t, columns: t.columns.map(c => ({ ...c })) }))
+			}))
+		} as Database;
+
+		let updatedTable: Table | null = null;
+
+		// Attempt clear on source column
+		const srcSchemaObj = updatedDb.schemas.find(s => s.name === srcSchema);
+		if (srcSchemaObj) {
+			const srcTableObj = srcSchemaObj.tables.find(t => t.name === srcTable);
+			if (srcTableObj && sourceColumn) {
+				const col = srcTableObj.columns.find(c => c.name === sourceColumn);
+				if (col && col.isForeignKey && col.foreignKeyRef &&
+					col.foreignKeyRef.schema === tgtSchema &&
+					col.foreignKeyRef.table === tgtTable &&
+					col.foreignKeyRef.column === targetColumn) {
+					col.isForeignKey = false;
+					col.foreignKeyRef = undefined;
+					col.fkConstraintName = undefined;
+					updatedTable = { ...srcTableObj, columns: srcTableObj.columns };
+				}
+			}
+		}
+
+		// If not found on source, try clear on target (bidirectional support)
+		if (!updatedTable) {
+			const tgtSchemaObj = updatedDb.schemas.find(s => s.name === tgtSchema);
+			if (tgtSchemaObj) {
+				const tgtTableObj = tgtSchemaObj.tables.find(t => t.name === tgtTable);
+				if (tgtTableObj && targetColumn) {
+					const col = tgtTableObj.columns.find(c => c.name === targetColumn);
+					if (col && col.isForeignKey && col.foreignKeyRef &&
+						col.foreignKeyRef.schema === srcSchema &&
+						col.foreignKeyRef.table === srcTable &&
+						col.foreignKeyRef.column === sourceColumn) {
+						col.isForeignKey = false;
+						col.foreignKeyRef = undefined;
+						col.fkConstraintName = undefined;
+						updatedTable = { ...tgtTableObj, columns: tgtTableObj.columns };
+					}
+				}
+			}
+		}
+
+		if (updatedTable) {
+			// Update local UI immediately
+			setCurrentDatabase(updatedDb);
+			updateNodesFromDatabase(updatedDb);
+
+			// Notify extension to update its canonical model
+			const updateSchemaName = updatedTable && updatedDb.schemas.some(s => s.tables.some(t => t.name === updatedTable!.name))
+				? (updatedDb.schemas.find(s => s.tables.some(t => t.name === updatedTable!.name))!.name)
+				: srcSchema;
+
+			vscode.postMessage({
+				command: 'updateTable',
+				schemaName: updateSchemaName,
+				oldTableName: updatedTable.name,
+				table: updatedTable,
+			});
+		}
+	});
+
+	// Finally delegate to default onEdgesChange to let React Flow update its internal state
+	onEdgesChange(changes);
+}, [edges, currentDatabase, onEdgesChange, setCurrentDatabase, updateNodesFromDatabase]);
+
 	const toggleDarkMode = () => {
 		const newMode = !isDarkMode;
 		setIsDarkMode(newMode);
@@ -1094,7 +1220,7 @@ export const App: React.FC = () => {
 					nodes={nodes} 
 					edges={edges} 
 					onNodesChange={onNodesChange} 
-					onEdgesChange={onEdgesChange} 
+					onEdgesChange={handleEdgesChange} 
 					onConnect={onConnect} 
 					nodeTypes={nodeTypes}
 					connectionMode={"loose" as any}
