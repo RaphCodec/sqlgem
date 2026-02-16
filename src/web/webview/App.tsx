@@ -25,7 +25,6 @@ import {
 	MenuItem,
 } from '@fluentui/react-components';
 import {
-    
 	DatabaseRegular,
 	TableRegular,
 	WeatherMoonRegular,
@@ -35,9 +34,7 @@ import {
 	OrganizationRegular,
 	TagRegular,
 	FilterRegular,
-} from '@fluentui/react-icons';
-import {
-    SettingsRegular,
+	SettingsRegular,
 } from '@fluentui/react-icons';
 import {
 	ReactFlow,
@@ -140,6 +137,9 @@ export const App: React.FC = () => {
 	});
 	const [showFKNames, setShowFKNames] = useState(() => {
 		return localStorage.getItem('sqlgem-show-fk-names') === 'true';
+	});
+	const [showIndexes, setShowIndexes] = useState(() => {
+		return localStorage.getItem('sqlgem-show-indexes') === 'true';
 	});
 	const [useIfNotExists, setUseIfNotExists] = useState(() => {
 		return localStorage.getItem('sqlgem-use-if-not-exists') === 'true';
@@ -403,6 +403,8 @@ export const App: React.FC = () => {
 					data: {
 						schemaName: schema.name,
 						table: table,
+						indexes: table.indexes || [],
+						showIndexes: showIndexes,
 						onEdit: handleEditTable,
 						onDelete: handleDeleteTable,
 					},
@@ -974,6 +976,15 @@ const handleEdgesChange = useCallback((changes: any[]) => {
 		localStorage.setItem('sqlgem-show-fk-names', String(newMode));
 	};
 
+	const toggleShowIndexes = useCallback(() => {
+		const newMode = !showIndexes;
+		setShowIndexes(newMode);
+		localStorage.setItem('sqlgem-show-indexes', String(newMode));
+
+		// Update nodes to include showIndexes flag so TableNode re-renders
+		setNodes((nds) => nds.map(n => ({ ...n, data: { ...(n.data as any), showIndexes: newMode } })));
+	}, [showIndexes, setNodes]);
+
 	// Update edge labels when FK name visibility changes
 	useEffect(() => {
 		setEdges((eds) => 
@@ -1271,6 +1282,12 @@ const handleEdgesChange = useCallback((changes: any[]) => {
 							<div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: 220 }}>
 								<span>Show FK Names</span>
 								<Checkbox checked={showFKNames} onChange={toggleFKNames} onClick={(e) => e.stopPropagation()} />
+							</div>
+						</MenuItem>
+						<MenuItem onClick={() => toggleShowIndexes()}>
+							<div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: 220 }}>
+								<span>Show Indexes</span>
+								<Checkbox checked={showIndexes} onChange={toggleShowIndexes} onClick={(e) => e.stopPropagation()} />
 							</div>
 						</MenuItem>
 						<MenuItem onClick={() => toggleDarkMode()}>

@@ -28,6 +28,7 @@ interface TableNodeProps {
 	};
 }
 
+
 const useStyles = makeStyles({
 	tableNode: {
 		backgroundColor: tokens.colorNeutralBackground1,
@@ -63,6 +64,12 @@ const useStyles = makeStyles({
 	},
 	columns: {
 		padding: `${tokens.spacingVerticalS} 0`,
+	},
+	separator: {
+		borderTop: `1px solid ${tokens.colorNeutralStrokeAccessible}`,
+		width: '80%',
+		margin: `${tokens.spacingVerticalXS} auto`,
+		height: '1px',
 	},
 	columnRow: {
 		padding: `${tokens.spacingVerticalXS} ${tokens.spacingHorizontalM}`,
@@ -177,9 +184,9 @@ const TableNode: React.FC<TableNodeProps> = ({ data }) => {
 				</div>
 			</div>
 			<div className={styles.columns}>
+				{/* Render actual columns first */}
 				{table.columns.map((col, index) => (
-					<div key={index} className={styles.columnRow}>
-						{/* Left handle - supports both source and target for bidirectional connections */}
+					<div key={`col-${index}`} className={styles.columnRow}>
 						<Handle
 							type="target"
 							position={Position.Left}
@@ -188,17 +195,15 @@ const TableNode: React.FC<TableNodeProps> = ({ data }) => {
 							isConnectable={true}
 						/>
 						<span className={styles.columnName}>
-						{/* Icon hierarchy: PK > UQ, then FK separately */}
-						{col.isPrimaryKey && <KeyRegular className={styles.keyIcon} />}
-						{!col.isPrimaryKey && col.isUniqueConstraint && <ShieldCheckmarkRegular className={styles.uniqueIcon} />}
-						{col.isForeignKey && <KeyRegular className={styles.fkIcon} />}
-						{col.name}
+							{col.isPrimaryKey && <KeyRegular className={styles.keyIcon} />}
+							{!col.isPrimaryKey && col.isUniqueConstraint && <ShieldCheckmarkRegular className={styles.uniqueIcon} />}
+							{col.isForeignKey && <KeyRegular className={styles.fkIcon} />}
+							{col.name}
 						</span>
 						<span className={styles.columnType}>
 							{getFullType(col)}
 							{!col.isNullable && ' NOT NULL'}
 						</span>
-						{/* Right handle - supports both source and target for bidirectional connections */}
 						<Handle
 							type="source"
 							position={Position.Right}
@@ -208,6 +213,25 @@ const TableNode: React.FC<TableNodeProps> = ({ data }) => {
 						/>
 					</div>
 				))}
+
+				{/* Separator between columns and indexes */}
+				{((data as any).showIndexes) && ((data as any).indexes || table.indexes) && ((data as any).indexes || table.indexes).length > 0 && (
+					<div className={styles.separator} />
+				)}
+
+				{/* Render indexes as pseudo-columns when enabled */}
+				{((data as any).showIndexes) && ((data as any).indexes || table.indexes) && ((data as any).indexes || table.indexes).length > 0 && (
+					((data as any).indexes || table.indexes).map((idx: any, i: number) => (
+						<div key={`idx-${idx?.name || i}`} className={styles.columnRow}>
+							<span className={styles.columnName}>
+								{idx?.name}
+							</span>
+							<span className={styles.columnType}>
+								{idx?.isUnique ? 'unique' : 'index'}
+							</span>
+						</div>
+					))
+				)}
 			</div>
 		</div>
 
@@ -263,7 +287,6 @@ export default React.memo(TableNode, (prevProps, nextProps) => {
 		
 		if (
 			prevCol.name !== nextCol.name ||
-			prevCol.type !== nextCol.type ||
 			prevCol.isPrimaryKey !== nextCol.isPrimaryKey ||
 			prevCol.isForeignKey !== nextCol.isForeignKey ||
 			prevCol.isUniqueConstraint !== nextCol.isUniqueConstraint ||
@@ -276,6 +299,17 @@ export default React.memo(TableNode, (prevProps, nextProps) => {
 			return false; // Re-render needed
 		}
 	}
+
+	// Check showIndexes flag change
+	if ((prevProps.data as any).showIndexes !== (nextProps.data as any).showIndexes) {
+		return false;
+	}
+
+	// Check indexes change
+	const prevIndexes = (prevProps.data as any).indexes || prevProps.data.table.indexes || [];
+	const nextIndexes = (nextProps.data as any).indexes || nextProps.data.table.indexes || [];
+	if (prevIndexes.length !== nextIndexes.length) return false;
+	if (JSON.stringify(prevIndexes) !== JSON.stringify(nextIndexes)) return false;
 
 	// No changes detected, skip re-render
 	return true;

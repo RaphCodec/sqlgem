@@ -655,7 +655,7 @@ export function activate(context: vscode.ExtensionContext) {
 						// Auto-generate name if missing using correct naming conventions
 						let indexName = idx.name;
 						if (!indexName) {
-							const prefix = idx.isUnique ? 'UX' : 'IX'; // UX for unique, IX for non-unique
+							const prefix = idx.isUnique ? 'UQ' : 'IX'; // UQ for unique, IX for non-unique
 							indexName = `${prefix}_${table.name}_${idx.columns.join('_')}`;
 						}
 						

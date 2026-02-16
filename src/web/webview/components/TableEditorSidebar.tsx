@@ -345,7 +345,7 @@ export const TableEditorSidebar: React.FC<TableEditorSidebarProps> = ({
 	};
 
 	const generateIndexName = (): string => {
-		const prefix = newIndexIsUnique ? 'UX' : 'IX'; // UX for unique indexes, IX for non-unique
+ 		const prefix = newIndexIsUnique ? 'UQ' : 'IX'; // UQ for unique indexes, IX for non-unique
 		const colPart = newIndexColumns.length > 0 ? newIndexColumns.join('_') : 'Column';
 		return `${prefix}_${localTable.name}_${colPart}`;
 	};
