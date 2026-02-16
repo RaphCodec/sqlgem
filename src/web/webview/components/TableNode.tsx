@@ -16,7 +16,7 @@ import {
 	DialogContent,
 	DialogActions
 } from '@fluentui/react-components';
-import { KeyRegular, EditRegular, MoreVerticalRegular, DeleteRegular, ShieldCheckmarkRegular } from '@fluentui/react-icons';
+import { KeyRegular, EditRegular, MoreVerticalRegular, DeleteRegular } from '@fluentui/react-icons';
 import { Table } from '../types';
 
 interface TableNodeProps {
@@ -100,10 +100,7 @@ const useStyles = makeStyles({
 		transform: 'rotate(180deg)',
 		display: 'inline-block',
 	},
-	uniqueIcon: {
-		fontSize: tokens.fontSizeBase200,
-		color: tokens.colorPaletteGreenForeground1,
-	},
+
 });
 
 const TableNode: React.FC<TableNodeProps> = ({ data }) => {
@@ -196,7 +193,6 @@ const TableNode: React.FC<TableNodeProps> = ({ data }) => {
 						/>
 						<span className={styles.columnName}>
 							{col.isPrimaryKey && <KeyRegular className={styles.keyIcon} />}
-							{!col.isPrimaryKey && col.isUniqueConstraint && <ShieldCheckmarkRegular className={styles.uniqueIcon} />}
 							{col.isForeignKey && <KeyRegular className={styles.fkIcon} />}
 							{col.name}
 						</span>
