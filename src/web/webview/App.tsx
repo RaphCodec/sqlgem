@@ -37,6 +37,9 @@ import {
 	FilterRegular,
 } from '@fluentui/react-icons';
 import {
+    SettingsRegular,
+} from '@fluentui/react-icons';
+import {
 	ReactFlow,
 	Background,
 	Controls,
@@ -1249,37 +1252,36 @@ const handleEdgesChange = useCallback((changes: any[]) => {
 					</Button>
 				</Tooltip>
 
-				<div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingLeft: '12px', borderLeft: `1px solid ${tokens.colorNeutralStroke2}` }}>
-					<Checkbox 
-						checked={useIfNotExists}
-						onChange={toggleIfNotExists}
-						label="Safe Create"
-						title="Generate idempotent SQL that's safe to run multiple times"
-					/>
-				</div>
-
-				<Tooltip content={showFKNames ? 'Hide FK Constraint Names' : 'Show FK Constraint Names'} relationship="label">
-					<Button
-						appearance="subtle"
-						size="small"
-						onClick={toggleFKNames}
-						aria-label={showFKNames ? 'Hide FK Constraint Names' : 'Show FK Constraint Names'}
-						style={{ opacity: showFKNames ? 1 : 0.5 }}
-					>
-						<TagRegular />
+			{/* Settings menu: combines Safe Create, FK names, and Dark Mode toggles */}
+			<Menu>
+				<MenuTrigger disableButtonEnhancement>
+					<Button appearance="subtle" size="small" aria-label="Settings">
+						<SettingsRegular />
 					</Button>
-				</Tooltip>
-
-				<Tooltip content={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'} relationship="label">
-					<Button
-						appearance="subtle"
-						size="small"
-						onClick={toggleDarkMode}
-						aria-label={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
-					>
-						{isDarkMode ? <WeatherSunnyRegular /> : <WeatherMoonRegular />}
-					</Button>
-				</Tooltip>
+				</MenuTrigger>
+				<MenuPopover>
+					<MenuList>
+						<MenuItem onClick={() => toggleIfNotExists()}>
+							<div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: 220 }}>
+								<span>Safe Create</span>
+								<Checkbox checked={useIfNotExists} onChange={toggleIfNotExists} onClick={(e) => e.stopPropagation()} />
+							</div>
+						</MenuItem>
+						<MenuItem onClick={() => toggleFKNames()}>
+							<div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: 220 }}>
+								<span>Show FK Names</span>
+								<Checkbox checked={showFKNames} onChange={toggleFKNames} onClick={(e) => e.stopPropagation()} />
+							</div>
+						</MenuItem>
+						<MenuItem onClick={() => toggleDarkMode()}>
+							<div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: 220 }}>
+								<span>Dark Mode</span>
+								<Checkbox checked={isDarkMode} onChange={toggleDarkMode} onClick={(e) => e.stopPropagation()} />
+							</div>
+						</MenuItem>
+					</MenuList>
+				</MenuPopover>
+			</Menu>
 
 					{/* Place node search to the right of dark mode button */}
 					<NodeSearch nodes={nodes} isDarkMode={isDarkMode} />
