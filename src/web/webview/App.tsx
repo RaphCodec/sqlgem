@@ -6,6 +6,7 @@ import {
 	Button,
 	Input,
 	Label,
+	Tooltip,
 	Dialog,
 	DialogTrigger,
 	DialogSurface,
@@ -1078,12 +1079,14 @@ const handleEdgesChange = useCallback((changes: any[]) => {
 						</DialogSurface>
 						</Dialog>
 
-						{/* File menu: New / Load / Save */}
+						{/* Database menu: New / Load / Save */}
 						<Menu>
 							<MenuTrigger disableButtonEnhancement>
-								<Button appearance="subtle" size="small">
-									File
-								</Button>
+								<Tooltip content="Database" relationship="label">
+									<Button appearance="subtle" size="small" aria-label="Database menu">
+										<DatabaseRegular />
+									</Button>
+								</Tooltip>
 							</MenuTrigger>
 							<MenuPopover>
 								<MenuList>
@@ -1149,15 +1152,10 @@ const handleEdgesChange = useCallback((changes: any[]) => {
 					{/* Compact Schema Filter Dropdown */}
 					<Menu>
 						<MenuTrigger disableButtonEnhancement>
-	                        		<Button
-	                        			icon={<FilterRegular />}
-	                        			appearance="subtle"
-	                        			size="small"
-	                        			disabled={!currentDatabase || currentDatabase.schemas.length === 0}
-	                        			title="Filter schemas"
-	                        		>
-	                        			Schemas
-	                        		</Button>
+							<Button appearance="subtle" size="small" aria-label="Schemas menu" disabled={!currentDatabase || currentDatabase.schemas.length === 0}>
+								<FilterRegular />
+								<span style={{ marginLeft: 8 }}>Schemas</span>
+							</Button>
 						</MenuTrigger>
 						<MenuPopover>
                         		<MenuList>
@@ -1225,28 +1223,31 @@ const handleEdgesChange = useCallback((changes: any[]) => {
 							</MenuList>
 						</MenuPopover>
 						</Menu>
-				<Button
-					icon={<OrganizationRegular />}
-					appearance="subtle"
-					size="small"
-					onClick={handleAutoLayout}
-				disabled={!currentDatabase || nodes.length === 0}
-				title="Auto Layout - Arrange tables using Dagre algorithm"
-			>
-				Auto Layout
-			</Button>
+				<Tooltip content="Auto Layout" relationship="label">
+					<Button
+						appearance="subtle"
+						size="small"
+						onClick={handleAutoLayout}
+						disabled={!currentDatabase || nodes.length === 0}
+						aria-label="Auto Layout"
+					>
+						<OrganizationRegular />
+					</Button>
+				</Tooltip>
 
 
 
-				<Button
-					icon={<DocumentTextRegular />}
-					appearance="subtle"
-					size="small"
-					onClick={handlePreviewSQL}
-					disabled={!currentDatabase}
-				>
-					Preview SQL
-				</Button>
+				<Tooltip content="Preview SQL" relationship="label">
+					<Button
+						appearance="subtle"
+						size="small"
+						onClick={handlePreviewSQL}
+						disabled={!currentDatabase}
+						aria-label="Preview SQL"
+					>
+						<DocumentTextRegular />
+					</Button>
+				</Tooltip>
 
 				<div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingLeft: '12px', borderLeft: `1px solid ${tokens.colorNeutralStroke2}` }}>
 					<Checkbox 
@@ -1257,22 +1258,28 @@ const handleEdgesChange = useCallback((changes: any[]) => {
 					/>
 				</div>
 
-				<Button
-				icon={<TagRegular />}
-					appearance="subtle"
-					size="small"
-					onClick={toggleFKNames}
-				title={showFKNames ? 'Hide FK Constraint Names' : 'Show FK Constraint Names'}
-					style={{ opacity: showFKNames ? 1 : 0.5 }}
-				/>
+				<Tooltip content={showFKNames ? 'Hide FK Constraint Names' : 'Show FK Constraint Names'} relationship="label">
+					<Button
+						appearance="subtle"
+						size="small"
+						onClick={toggleFKNames}
+						aria-label={showFKNames ? 'Hide FK Constraint Names' : 'Show FK Constraint Names'}
+						style={{ opacity: showFKNames ? 1 : 0.5 }}
+					>
+						<TagRegular />
+					</Button>
+				</Tooltip>
 
-				<Button
-					icon={isDarkMode ? <WeatherSunnyRegular /> : <WeatherMoonRegular />}
-					appearance="subtle"
-					size="small"
-					onClick={toggleDarkMode}
-					title={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
-				/>
+				<Tooltip content={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'} relationship="label">
+					<Button
+						appearance="subtle"
+						size="small"
+						onClick={toggleDarkMode}
+						aria-label={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+					>
+						{isDarkMode ? <WeatherSunnyRegular /> : <WeatherMoonRegular />}
+					</Button>
+				</Tooltip>
 
 				<div className={styles.dbInfo}>
 					{currentDatabase ? `${currentDatabase.name} (${currentDatabase.schemas.length} schemas)` : 'No database'}
