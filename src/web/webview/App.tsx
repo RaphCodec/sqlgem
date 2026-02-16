@@ -52,6 +52,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import { Database, Schema, Table, Column, VSCodeAPI } from './types';
 import TableNode from './components/TableNode';
+import NodeSearch from './components/NodeSearch';
 import { TableEditorSidebar } from './components/TableEditorSidebar';
 // Schema filter replaced by compact toolbar dropdown
 import { calculateAutoLayout } from './utils/autoLayout';
@@ -143,6 +144,7 @@ export const App: React.FC = () => {
 	const [currentDatabase, setCurrentDatabase] = useState<Database | null>(null);
 	const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
 	const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+
 	const [visibleSchemas, setVisibleSchemas] = useState<Set<string>>(() => {
 		const saved = localStorage.getItem('sqlgem-visible-schemas');
 		return saved ? new Set(JSON.parse(saved)) : new Set(['dbo']);
@@ -1235,8 +1237,6 @@ const handleEdgesChange = useCallback((changes: any[]) => {
 					</Button>
 				</Tooltip>
 
-
-
 				<Tooltip content="Preview SQL" relationship="label">
 					<Button
 						appearance="subtle"
@@ -1280,6 +1280,9 @@ const handleEdgesChange = useCallback((changes: any[]) => {
 						{isDarkMode ? <WeatherSunnyRegular /> : <WeatherMoonRegular />}
 					</Button>
 				</Tooltip>
+
+					{/* Place node search to the right of dark mode button */}
+					<NodeSearch nodes={nodes} isDarkMode={isDarkMode} />
 
 				<div className={styles.dbInfo}>
 					{currentDatabase ? `${currentDatabase.name} (${currentDatabase.schemas.length} schemas)` : 'No database'}
