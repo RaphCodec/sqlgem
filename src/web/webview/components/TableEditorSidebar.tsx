@@ -42,7 +42,7 @@ const useStyles = makeStyles({
 		right: 0,
 		top: 0,
 		bottom: 0,
-		width: '500px',
+		width: '640px',
 		backgroundColor: tokens.colorNeutralBackground1,
 		borderLeft: `1px solid ${tokens.colorNeutralStroke1}`,
 		display: 'flex',
@@ -416,7 +416,6 @@ export const TableEditorSidebar: React.FC<TableEditorSidebarProps> = ({
 			{/* Tabs */}
 			<TabList selectedValue={selectedTab} onTabSelect={handleTabSelect} className={styles.tabs}>
 				<Tab value="columns">Columns</Tab>
-				<Tab value="foreignKeys">Foreign Keys</Tab>
 				<Tab value="indexes">Indexes</Tab>
 			</TabList>
 
@@ -563,6 +562,18 @@ export const TableEditorSidebar: React.FC<TableEditorSidebarProps> = ({
 															size="small"
 															style={{ flex: 1 }}
 														/>
+														<Button
+															appearance="subtle"
+															icon={<DeleteRegular />}
+															onClick={() => {
+																updateColumn(index, 'isForeignKey', false);
+																updateColumn(index, 'foreignKeyRef', undefined);
+																updateColumn(index, 'fkConstraintName', '');
+															}}
+															size="small"
+															title="Remove FK"
+															style={{ marginLeft: tokens.spacingHorizontalS }}
+														/>
 													</div>
 												</>
 											)}
@@ -574,46 +585,7 @@ export const TableEditorSidebar: React.FC<TableEditorSidebarProps> = ({
 					</div>
 				)}
 
-				{selectedTab === 'foreignKeys' && (
-					<div>
-						<div className={styles.columnList}>
-							{localTable.columns
-								.map((col, index) => ({ col, index }))
-								.filter(({ col }) => col.isForeignKey)
-								.map(({ col, index }) => (
-									<div key={index} style={{ marginBottom: tokens.spacingVerticalM }}>
-										<Label>{col.name}</Label>
-										<Select
-											value={col.foreignKeyRef ? `${col.foreignKeyRef.schema}.${col.foreignKeyRef.table}.${col.foreignKeyRef.column}` : ''}
-											onChange={(e) => {
-												const [s, t, c] = e.target.value.split('.');
-												updateColumn(index, 'foreignKeyRef', { schema: s, table: t, column: c });
-											}}
-											size="small"
-										>
-											<option value="">Select reference...</option>
-											{availablePKColumns.map((pk) => (
-												<option key={`${pk.schema}.${pk.table}.${pk.column}`} value={`${pk.schema}.${pk.table}.${pk.column}`}>
-													{pk.schema}.{pk.table}.{pk.column}
-												</option>
-											))}
-										</Select>
-										<Checkbox
-											checked={col.isForeignKey}
-											onChange={(e, data) => updateColumn(index, 'isForeignKey', data.checked)}
-											label="Is Foreign Key"
-											style={{ marginTop: tokens.spacingVerticalXS }}
-										/>
-									</div>
-								))}
-							{localTable.columns.filter(col => col.isForeignKey).length === 0 && (
-								<div className={styles.emptyState}>
-									No foreign keys defined. Mark a column as FK in the Columns tab to create one.
-								</div>
-							)}
-						</div>
-					</div>
-				)}
+				{/* Foreign key management is handled inline in the Columns tab; no separate tab. */}
 
 				{selectedTab === 'indexes' && (
 					<div>
