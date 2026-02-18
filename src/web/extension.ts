@@ -36,6 +36,7 @@ interface Table {
 	columns: Column[];
 	primaryKey?: PrimaryKey;
 	uniqueConstraints?: UniqueConstraint[];
+	checkConstraints?: { name: string; expression: string }[];
 	indexes?: Index[];
 	x?: number;
 	y?: number;
@@ -536,6 +537,10 @@ export function activate(context: vscode.ExtensionContext) {
 			});
 		}
 
+        // Check constraints are emitted later in generateDatabaseSQL so they appear
+        // after the CREATE TABLE batch (separated by GO). This avoids parse-time
+        // resolution issues when ALTER TABLE references the newly created table.
+
 		return tableSql;
 	}
 
@@ -708,6 +713,43 @@ export function activate(context: vscode.ExtensionContext) {
 			sql += `-- ====================================\n\n`;
 			allForeignKeys.forEach(fk => {
 				sql += fk + '\nGO\n\n';
+			});
+		}
+
+		// Collect all check constraints (emit after table creation batches)
+		const allCheckConstraints: string[] = [];
+		currentDatabase.schemas.forEach(schema => {
+			schema.tables.forEach(table => {
+				if (table.checkConstraints) {
+					table.checkConstraints.forEach((chk) => {
+						const chkName = chk.name || `CK_${table.name}`;
+						let chkSql = '';
+						if (useIfNotExists) {
+							chkSql += `IF NOT EXISTS (\n`;
+							chkSql += `    SELECT 1 FROM sys.check_constraints\n`;
+							chkSql += `    WHERE name = N'${chkName}'\n`;
+							chkSql += `    AND parent_object_id = OBJECT_ID(N'[${schema.name}].[${table.name}]')\n`;
+							chkSql += `)\n`;
+							chkSql += `BEGIN\n`;
+							chkSql += `    ALTER TABLE [${schema.name}].[${table.name}]\n`;
+							chkSql += `        ADD CONSTRAINT [${chkName}] CHECK (${chk.expression});\n`;
+							chkSql += `END`;
+						} else {
+							chkSql += `ALTER TABLE [${schema.name}].[${table.name}]\n`;
+							chkSql += `    ADD CONSTRAINT [${chkName}] CHECK (${chk.expression});`;
+						}
+						allCheckConstraints.push(chkSql);
+					});
+				}
+			});
+		});
+
+		if (allCheckConstraints.length > 0) {
+			sql += `-- ====================================\n`;
+			sql += `-- Check Constraints\n`;
+			sql += `-- ====================================\n\n`;
+			allCheckConstraints.forEach(chk => {
+				sql += chk + '\nGO\n\n';
 			});
 		}
 

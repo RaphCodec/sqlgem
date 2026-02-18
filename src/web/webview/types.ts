@@ -17,6 +17,7 @@ export interface Table {
 		isClustered?: boolean; // MSSQL: PK can be clustered or nonclustered
 	};
 	uniqueConstraints?: UniqueConstraint[];
+	checkConstraints?: CheckConstraint[];
 	indexes?: Index[];
 	x?: number;
 	y?: number;
@@ -32,6 +33,11 @@ export interface Index {
 export interface UniqueConstraint {
 	name: string;
 	columns: string[];
+}
+
+export interface CheckConstraint {
+    name: string;
+    expression: string; // SQL expression for CHECK, e.g. "age >= 0"
 }
 
 export interface Column {

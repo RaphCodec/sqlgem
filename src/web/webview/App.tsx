@@ -262,10 +262,17 @@ export const App: React.FC = () => {
 	}, [isDarkMode]);
 
 	const handleEditTable = useCallback((schemaName: string, table: Table) => {
-		setEditingTable({ schema: schemaName, table });
+		// Ensure we open the freshest copy from currentDatabase (includes checks, constraints)
+		let resolvedTable = table;
+		if (currentDatabase) {
+			const schema = currentDatabase.schemas.find(s => s.name === schemaName);
+			const found = schema?.tables.find(t => t.name === table.name);
+			if (found) resolvedTable = found;
+		}
+		setEditingTable({ schema: schemaName, table: resolvedTable });
 		setSidebarMode('edit');
 		setSidebarOpen(true);
-	}, []);
+	}, [currentDatabase]);
 
 	const handleAddTable = useCallback((schemaName: string) => {
 		const newTable: Table = {
@@ -395,20 +402,37 @@ export const App: React.FC = () => {
 				// Check if node should be hidden based on current visible schemas
 				const isHidden = !visibleSchemas.has(schema.name);
 				
-				newNodes.push({
-					id: nodeId,
-					type: 'tableNode',
-					position: { x: table.x || xOffset, y: table.y || yOffset },
-					hidden: isHidden,
-					data: {
-						schemaName: schema.name,
-						table: table,
-						indexes: table.indexes || [],
-						showIndexes: showIndexes,
-						onEdit: handleEditTable,
-						onDelete: handleDeleteTable,
-					},
-				});
+				// Try to reuse existing node to avoid resetting position while dragging
+				const existingNode = nodes.find(n => n.id === nodeId);
+				const resolvedPosition = (typeof table.x === 'number' && typeof table.y === 'number')
+					? { x: table.x, y: table.y }
+					: (existingNode ? existingNode.position : { x: xOffset, y: yOffset });
+
+				const nodeData = {
+					schemaName: schema.name,
+					table: table,
+					indexes: table.indexes || [],
+					showIndexes: showIndexes,
+					onEdit: handleEditTable,
+					onDelete: handleDeleteTable,
+				};
+
+				if (existingNode) {
+					newNodes.push({
+						...existingNode,
+						position: resolvedPosition,
+						hidden: isHidden,
+						data: nodeData,
+					});
+				} else {
+					newNodes.push({
+						id: nodeId,
+						type: 'tableNode',
+						position: resolvedPosition,
+						hidden: isHidden,
+						data: nodeData,
+					});
+				}
 				console.log(`[Webview]     Created node: ${nodeId} at (${table.x || xOffset}, ${table.y || yOffset}), hidden: ${isHidden}`);
 
 				// Create edges for foreign keys
@@ -462,7 +486,7 @@ export const App: React.FC = () => {
 		// Set nodes and edges directly
 		setNodes(newNodes);
 		setEdges(newEdges);
-	}, [visibleSchemas, handleEditTable, handleDeleteTable, showFKNames, setNodes, setEdges]);
+	}, [visibleSchemas, handleEditTable, handleDeleteTable, showFKNames, setNodes, setEdges, nodes]);
 
 	useEffect(() => {
 		console.log('[Webview] Mounted, requesting database state');
@@ -509,10 +533,15 @@ export const App: React.FC = () => {
 			// Update nodes with new positions
 			setNodes(layoutedNodes);
 
-			// Fit view after layout with padding
-			setTimeout(() => {
-				(fitView as any)({ padding: 0.2, duration: 300 });
-			}, 50);
+			// Fit view after layout with padding. Use an immediate fit (no animation)
+			// and trigger via requestAnimationFrame to avoid layout thrashing / jitter.
+			requestAnimationFrame(() => {
+				try {
+					(fitView as any)({ padding: 0.2, duration: 0 });
+				} catch (e) {
+					// ignore if fitView isn't ready
+				}
+			});
 		}
 	}, [nodes, edges, currentDatabase, setNodes, fitView]);
 

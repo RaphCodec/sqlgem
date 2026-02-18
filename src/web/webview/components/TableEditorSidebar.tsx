@@ -161,6 +161,7 @@ export const TableEditorSidebar: React.FC<TableEditorSidebarProps> = ({
 		...table, 
 		columns: [...table.columns],
 		uniqueConstraints: table.uniqueConstraints || [],
+		checkConstraints: (table as any).checkConstraints || [],
 		indexes: table.indexes || [],
 		primaryKey: table.primaryKey
 	});
@@ -176,6 +177,10 @@ export const TableEditorSidebar: React.FC<TableEditorSidebarProps> = ({
 	const [newIndexColumns, setNewIndexColumns] = useState<string[]>([]);
 	const [newIndexIsClustered, setNewIndexIsClustered] = useState(false);
 	const [newIndexIsUnique, setNewIndexIsUnique] = useState(false);
+
+	// Check constraint state
+	const [newCheckName, setNewCheckName] = useState('');
+	const [newCheckExpression, setNewCheckExpression] = useState('');
 	
 	// Temporary input state (allows empty strings during editing)
 	const [lengthInput, setLengthInput] = useState<string>('');
@@ -359,6 +364,39 @@ export const TableEditorSidebar: React.FC<TableEditorSidebarProps> = ({
 		setTypeConfigDialogOpen(true);
 	};
 
+	const generateCheckName = (): string => {
+		const existing = (localTable.checkConstraints || []).length;
+		return `CK_${localTable.name}_${existing + 1}`;
+	};
+
+	const addCheck = () => {
+		if (!newCheckExpression || newCheckExpression.trim() === '') {
+			alert('Please enter a check expression.');
+			return;
+		}
+
+		const name = newCheckName && newCheckName.trim() !== '' ? newCheckName.trim() : generateCheckName();
+		const newChecks = [
+			...(localTable.checkConstraints || []),
+			{ name, expression: newCheckExpression.trim() }
+		];
+		setLocalTable({ ...localTable, checkConstraints: newChecks });
+		setNewCheckName('');
+		setNewCheckExpression('');
+	};
+
+	const updateCheck = (index: number, field: 'name' | 'expression', value: string) => {
+		const checks = [...(localTable.checkConstraints || [])];
+		const chk = { ...checks[index], [field]: value } as any;
+		checks[index] = chk;
+		setLocalTable({ ...localTable, checkConstraints: checks });
+	};
+
+	const removeCheck = (index: number) => {
+		const checks = (localTable.checkConstraints || []).filter((_, i) => i !== index);
+		setLocalTable({ ...localTable, checkConstraints: checks });
+	};
+
 	const needsTypeConfig = (type: string) => {
 		return ['VARCHAR', 'NVARCHAR', 'DECIMAL', 'NUMERIC', 'CHAR', 'NCHAR'].includes(type);
 	};
@@ -416,6 +454,7 @@ export const TableEditorSidebar: React.FC<TableEditorSidebarProps> = ({
 			{/* Tabs */}
 			<TabList selectedValue={selectedTab} onTabSelect={handleTabSelect} className={styles.tabs}>
 				<Tab value="columns">Columns</Tab>
+				<Tab value="checks">Checks</Tab>
 				<Tab value="indexes">Indexes</Tab>
 			</TabList>
 
@@ -586,6 +625,90 @@ export const TableEditorSidebar: React.FC<TableEditorSidebarProps> = ({
 				)}
 
 				{/* Foreign key management is handled inline in the Columns tab; no separate tab. */}
+
+				{selectedTab === 'checks' && (
+					<div>
+						<div style={{ marginBottom: tokens.spacingVerticalL }}>
+							<Label weight="semibold" size="large" style={{ marginBottom: tokens.spacingVerticalS }}>
+								Create New Check Constraint
+							</Label>
+
+							{/* Check Name */}
+							<div className={styles.formGroup}>
+								<Label size="small">Constraint Name</Label>
+								<div style={{ display: 'flex', gap: tokens.spacingHorizontalS }}>
+									<Input
+										value={newCheckName}
+										onChange={(e) => setNewCheckName(e.target.value)}
+										placeholder="Optional name, generated if empty"
+										size="small"
+										style={{ flex: 1 }}
+									/>
+									<Button
+										appearance="subtle"
+										onClick={() => setNewCheckName(generateCheckName())}
+										size="small"
+										title="Generate name"
+									>
+										Generate
+									</Button>
+								</div>
+							</div>
+
+							{/* Expression */}
+							<div className={styles.formGroup}>
+								<Label size="small">Expression</Label>
+								<Input
+									value={newCheckExpression}
+									onChange={(e) => setNewCheckExpression(e.target.value)}
+									placeholder="e.g. age >= 0"
+									size="small"
+								/>
+							</div>
+
+							<Button
+								appearance="primary"
+								icon={<AddRegular />}
+								onClick={addCheck}
+								size="small"
+								disabled={!newCheckExpression || newCheckExpression.trim() === ''}
+							>
+								Add Check
+							</Button>
+						</div>
+
+						{/* Existing checks */}
+						<div>
+							<Label weight="semibold" size="large" style={{ marginBottom: tokens.spacingVerticalS }}>
+								Existing Check Constraints
+							</Label>
+							{(localTable.checkConstraints || []).length === 0 && (
+								<div style={{ padding: tokens.spacingVerticalL, color: tokens.colorNeutralForeground3 }}>
+									No check constraints defined.
+								</div>
+							)}
+							{(localTable.checkConstraints || []).map((chk, idx) => (
+								<div key={idx} style={{
+									padding: tokens.spacingVerticalS,
+									border: `1px solid ${tokens.colorNeutralStroke2}`,
+									borderRadius: tokens.borderRadiusMedium,
+									marginBottom: tokens.spacingVerticalS
+								}}>
+									<div style={{ display: 'flex', gap: tokens.spacingHorizontalS, alignItems: 'center' }}>
+										<Input value={chk.name} onChange={(e) => updateCheck(idx, 'name', e.target.value)} size="small" style={{ flex: 1 }} />
+										<Button appearance="subtle" icon={<DeleteRegular />} onClick={() => removeCheck(idx)} size="small" title="Remove check" />
+									</div>
+									<div style={{ marginTop: tokens.spacingVerticalXS }}>
+										<Input value={chk.expression} onChange={(e) => updateCheck(idx, 'expression', e.target.value)} size="small" />
+									</div>
+									<div style={{ marginTop: tokens.spacingVerticalXS, color: tokens.colorNeutralForeground3, fontSize: tokens.fontSizeBase200 }}>
+										SQL: ALTER TABLE {localSchemaName}.{localTable.name} ADD CONSTRAINT {chk.name} CHECK ({chk.expression});
+									</div>
+								</div>
+							))}
+						</div>
+					</div>
+				)}
 
 				{selectedTab === 'indexes' && (
 					<div>
