@@ -23,6 +23,7 @@ interface TableNodeProps {
 	data: {
 		schemaName: string;
 		table: Table;
+		borderColor?: string;
 		onEdit?: (schemaName: string, table: Table) => void;
 		onDelete?: (schemaName: string, tableName: string) => void;
 	};
@@ -105,7 +106,7 @@ const useStyles = makeStyles({
 
 const TableNode: React.FC<TableNodeProps> = ({ data }) => {
 	const styles = useStyles();
-	const { schemaName, table, onEdit, onDelete } = data;
+	const { schemaName, table, borderColor, onEdit, onDelete } = data;
 	const tableId = `${schemaName}.${table.name}`;
 	const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
@@ -119,10 +120,18 @@ const TableNode: React.FC<TableNodeProps> = ({ data }) => {
 		return baseType;
 	};
 
+	const effectiveColor = borderColor || undefined;
+
 	return (
 		<>
-		<div className={styles.tableNode}>
-			<div className={styles.header}>
+		<div
+			className={styles.tableNode}
+			style={effectiveColor ? { border: `2px solid ${effectiveColor}` } : undefined}
+		>
+			<div
+				className={styles.header}
+				style={effectiveColor ? { backgroundColor: effectiveColor } : undefined}
+			>
 				<div className={styles.headerTitle}>
 					{schemaName}.{table.name}
 				</div>
@@ -270,7 +279,8 @@ export default React.memo(TableNode, (prevProps, nextProps) => {
 		prevProps.data.table.name !== nextProps.data.table.name ||
 		prevProps.data.table.columns.length !== nextProps.data.table.columns.length ||
 		prevProps.data.onEdit !== nextProps.data.onEdit ||
-		prevProps.data.onDelete !== nextProps.data.onDelete
+		prevProps.data.onDelete !== nextProps.data.onDelete ||
+		prevProps.data.borderColor !== nextProps.data.borderColor
 	) {
 		return false; // Re-render needed
 	}

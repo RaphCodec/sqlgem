@@ -141,6 +141,10 @@ export const App: React.FC = () => {
 	const [showIndexes, setShowIndexes] = useState(() => {
 		return localStorage.getItem('sqlgem-show-indexes') === 'true';
 	});
+	const [schemaColors, setSchemaColors] = useState<Record<string, string>>(() => {
+		const saved = localStorage.getItem('sqlgem-schema-colors');
+		return saved ? JSON.parse(saved) : {};
+	});
 	const [useIfNotExists, setUseIfNotExists] = useState(() => {
 		return localStorage.getItem('sqlgem-use-if-not-exists') === 'true';
 	});
@@ -413,6 +417,7 @@ export const App: React.FC = () => {
 					table: table,
 					indexes: table.indexes || [],
 					showIndexes: showIndexes,
+					borderColor: schemaColors[schema.name],
 					onEdit: handleEditTable,
 					onDelete: handleDeleteTable,
 				};
@@ -486,7 +491,7 @@ export const App: React.FC = () => {
 		// Set nodes and edges directly
 		setNodes(newNodes);
 		setEdges(newEdges);
-	}, [visibleSchemas, handleEditTable, handleDeleteTable, showFKNames, setNodes, setEdges, nodes]);
+	}, [visibleSchemas, handleEditTable, handleDeleteTable, showFKNames, setNodes, setEdges, nodes, schemaColors]);
 
 	useEffect(() => {
 		console.log('[Webview] Mounted, requesting database state');
@@ -1093,6 +1098,22 @@ const handleEdgesChange = useCallback((changes: any[]) => {
 	const handleResetSchemaFilter = useCallback(() => {
 		setVisibleSchemas(new Set([defaultSchema]));
 	}, [defaultSchema]);
+
+	const handleSchemaColorChange = useCallback((schema: string, color: string) => {
+		setSchemaColors(prev => {
+			const next = { ...prev, [schema]: color };
+			localStorage.setItem('sqlgem-schema-colors', JSON.stringify(next));
+			return next;
+		});
+		// Update existing nodes immediately without a full rebuild
+		setNodes(nds => nds.map(n => {
+			const nodeSchema = n.id.split('.')[0];
+			if (nodeSchema === schema) {
+				return { ...n, data: { ...(n.data as any), borderColor: color } };
+			}
+			return n;
+		}));
+	}, [setNodes]);
 	return (
 		<FluentProvider theme={isDarkMode ? webDarkTheme : webLightTheme}>
 			<div className={styles.app}>
@@ -1251,7 +1272,17 @@ const handleEdgesChange = useCallback((changes: any[]) => {
 													<input type="checkbox" checked={checked} readOnly />
 													<span>{s}</span>
 												</div>
-												<span style={{ opacity: 0.6 }}>{count}</span>
+												<div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+													<span style={{ opacity: 0.6 }}>{count}</span>
+													<input
+														type="color"
+														value={schemaColors[s] || '#0078d4'}
+														onChange={(e) => handleSchemaColorChange(s, e.target.value)}
+														onClick={(e) => e.stopPropagation()}
+														style={{ width: 22, height: 22, border: 'none', padding: 0, cursor: 'pointer', borderRadius: 3, verticalAlign: 'middle' }}
+														title={`Border color for schema "${s}"`}
+													/>
+												</div>
 											</div>
 										</MenuItem>
 									);
