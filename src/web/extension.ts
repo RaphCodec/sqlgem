@@ -123,6 +123,9 @@ export function activate(context: vscode.ExtensionContext) {
 					case 'saveDatabase':
 						await handleSaveDatabase(panel, message.useIfNotExists || false);
 						break;
+					case 'saveSchemaColors':
+						await handleSaveSchemaColors(message.colors);
+						break;
 					case 'previewSQL':
 						handlePreviewSQL(panel, message.useIfNotExists || false);
 						break;					case 'getDatabaseState':
@@ -276,7 +279,17 @@ export function activate(context: vscode.ExtensionContext) {
 			currentDatabase = db;
 			currentDatabaseFolderUri = folderUri;
 
-			panel.webview.postMessage({ command: 'updateDatabase', database: currentDatabase });
+			// Load schema colors if they exist
+			let schemaColors: Record<string, string> = {};
+			try {
+				const colorsUri = vscode.Uri.joinPath(folderUri, 'schema-colors.json');
+				const colorsBytes = await vscode.workspace.fs.readFile(colorsUri);
+				schemaColors = JSON.parse(new TextDecoder().decode(colorsBytes));
+			} catch {
+				// File doesn't exist yet — use empty defaults
+			}
+
+			panel.webview.postMessage({ command: 'updateDatabase', database: currentDatabase, schemaColors });
 			console.log('Sent updateDatabase message to webview');
 			
 			vscode.window.showInformationMessage(`Loaded database "${pick}" from database.sql`);
@@ -754,6 +767,19 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 
 		return sql;
+	}
+
+	async function handleSaveSchemaColors(colors: Record<string, string>): Promise<void> {
+		if (!currentDatabaseFolderUri) {
+			return;
+		}
+		try {
+			const colorsUri = vscode.Uri.joinPath(currentDatabaseFolderUri, 'schema-colors.json');
+			const encoder = new TextEncoder();
+			await vscode.workspace.fs.writeFile(colorsUri, encoder.encode(JSON.stringify(colors, null, 2)));
+		} catch (error) {
+			console.error('Failed to save schema colors:', error);
+		}
 	}
 
 	async function handleSaveDatabase(panel: vscode.WebviewPanel, useIfNotExists: boolean = false): Promise<void> {

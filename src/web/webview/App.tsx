@@ -512,6 +512,10 @@ export const App: React.FC = () => {
 				// Reset layout flag to trigger auto-layout on database load
 				initialLayoutApplied.current = false;
 				setCurrentDatabase(message.database);
+				if (message.schemaColors && typeof message.schemaColors === 'object') {
+					setSchemaColors(message.schemaColors);
+					localStorage.setItem('sqlgem-schema-colors', JSON.stringify(message.schemaColors));
+				}
 				updateNodesFromDatabase(message.database);
 			} else if (message.command === 'showSQLPreview') {
 				setPreviewSQL(message.sql);
@@ -1103,6 +1107,7 @@ const handleEdgesChange = useCallback((changes: any[]) => {
 		setSchemaColors(prev => {
 			const next = { ...prev, [schema]: color };
 			localStorage.setItem('sqlgem-schema-colors', JSON.stringify(next));
+			vscode.postMessage({ command: 'saveSchemaColors', colors: next });
 			return next;
 		});
 		// Update existing nodes immediately without a full rebuild
