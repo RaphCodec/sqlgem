@@ -145,11 +145,15 @@ export const App: React.FC = () => {
 		const saved = localStorage.getItem('sqlgem-schema-colors');
 		return saved ? JSON.parse(saved) : {};
 	});
+	const schemaColorsRef = useRef<Record<string, string>>({});
+	schemaColorsRef.current = schemaColors;
 	const [useIfNotExists, setUseIfNotExists] = useState(() => {
 		return localStorage.getItem('sqlgem-use-if-not-exists') === 'true';
 	});
 	const [currentDatabase, setCurrentDatabase] = useState<Database | null>(null);
 	const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
+	const nodesRef = useRef<Node[]>([]);
+	nodesRef.current = nodes;
 	const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
 	const [visibleSchemas, setVisibleSchemas] = useState<Set<string>>(() => {
@@ -177,6 +181,8 @@ export const App: React.FC = () => {
 
 	// Track if initial auto-layout has been applied
 	const initialLayoutApplied = useRef(false);
+	// Track which database name was last laid out so we don't re-layout on incremental updates
+	const lastLayoutedDatabaseNameRef = useRef<string | null>(null);
 
 	// Extract schema names from database
 	const availableSchemas = React.useMemo(() => {
@@ -407,7 +413,7 @@ export const App: React.FC = () => {
 				const isHidden = !visibleSchemas.has(schema.name);
 				
 				// Try to reuse existing node to avoid resetting position while dragging
-				const existingNode = nodes.find(n => n.id === nodeId);
+				const existingNode = nodesRef.current.find(n => n.id === nodeId);
 				const resolvedPosition = (typeof table.x === 'number' && typeof table.y === 'number')
 					? { x: table.x, y: table.y }
 					: (existingNode ? existingNode.position : { x: xOffset, y: yOffset });
@@ -417,7 +423,7 @@ export const App: React.FC = () => {
 					table: table,
 					indexes: table.indexes || [],
 					showIndexes: showIndexes,
-					borderColor: schemaColors[schema.name],
+					borderColor: schemaColorsRef.current[schema.name],
 					onEdit: handleEditTable,
 					onDelete: handleDeleteTable,
 				};
@@ -491,7 +497,7 @@ export const App: React.FC = () => {
 		// Set nodes and edges directly
 		setNodes(newNodes);
 		setEdges(newEdges);
-	}, [visibleSchemas, handleEditTable, handleDeleteTable, showFKNames, setNodes, setEdges, nodes, schemaColors]);
+	}, [visibleSchemas, handleEditTable, handleDeleteTable, showFKNames, setNodes, setEdges]);
 
 	useEffect(() => {
 		console.log('[Webview] Mounted, requesting database state');
@@ -509,8 +515,12 @@ export const App: React.FC = () => {
 						console.log(`[Webview]   Schema: ${schema.name}, Tables: ${schema.tables?.length}`);
 					});
 				}
-				// Reset layout flag to trigger auto-layout on database load
-				initialLayoutApplied.current = false;
+				// Only reset layout flag when a different database is loaded (not on incremental updates
+				// to the same database). Resetting unconditionally caused fitView to fire after every
+				// edit, snapping the pan/zoom back to the start position.
+				if (message.database?.name !== lastLayoutedDatabaseNameRef.current) {
+					initialLayoutApplied.current = false;
+				}
 				setCurrentDatabase(message.database);
 				if (message.schemaColors && typeof message.schemaColors === 'object') {
 					setSchemaColors(message.schemaColors);
@@ -531,6 +541,7 @@ export const App: React.FC = () => {
 	useEffect(() => {
 		if (!initialLayoutApplied.current && nodes.length > 0 && currentDatabase) {
 			initialLayoutApplied.current = true;
+			lastLayoutedDatabaseNameRef.current = currentDatabase.name;
 			
 			// Calculate new positions using Dagre
 			const layoutedNodes = calculateAutoLayout(nodes, edges, {
