@@ -280,8 +280,6 @@ export const App: React.FC = () => {
 
 	// Update node and edge visibility using hidden property (no re-render)
 	useEffect(() => {
-		console.log('[Webview] Updating visibility for schemas:', Array.from(visibleSchemas));
-		
 		// Update nodes with hidden property instead of filtering
 		setNodes((nds) => 
 			nds.map((node) => {
@@ -448,10 +446,7 @@ export const App: React.FC = () => {
 	}, [currentDatabase, mssqlPreviewCache, useIfNotExists]);
 
 	const updateNodesFromDatabase = useCallback((database: Database | null) => {
-		console.log('[Webview] updateNodesFromDatabase called with:', database);
-		
 		if (!database) {
-			console.log('[Webview] No database, clearing nodes/edges');
 			setNodes([]);
 			setEdges([]);
 			return;
@@ -493,19 +488,14 @@ export const App: React.FC = () => {
 			});
 		});
 
-		console.log('[Webview] Processing database:', database.name);
-		console.log('[Webview] Number of schemas:', database.schemas?.length);
-
 		const newNodes: Node[] = [];
 		const newEdges: Edge[] = [];
 		let yOffset = 50;
 
 		database.schemas.forEach((schema) => {
-			console.log(`[Webview] Processing schema: ${schema.name}, tables: ${schema.tables?.length}`);
 			if (!schema || !schema.tables) return;
 			let xOffset = 50;
 			schema.tables.forEach((table) => {
-				console.log(`[Webview]   Processing table: ${table.name}, columns: ${table.columns?.length}`);
 				if (!table || !table.name || !table.columns) return;
 
 				const nodeId = `${schema.name}.${table.name}`;
@@ -544,7 +534,6 @@ export const App: React.FC = () => {
 						data: nodeData,
 					});
 				}
-				console.log(`[Webview]     Created node: ${nodeId} at (${table.x || xOffset}, ${table.y || yOffset}), hidden: ${isHidden}`);
 
 				// Create edges for foreign keys
 				table.columns.forEach((col) => {
@@ -582,7 +571,6 @@ export const App: React.FC = () => {
 							},
 						}),
 					});
-					console.log(`[Webview]       Created FK edge: ${sourceId} -> ${targetId}, hidden: ${edgeHidden}`);
 					}
 				});
 
@@ -591,30 +579,18 @@ export const App: React.FC = () => {
 			yOffset += 350;
 		});
 
-		console.log(`[Webview] Total nodes created: ${newNodes.length}`);
-		console.log(`[Webview] Total edges created: ${newEdges.length}`);
-		
 		// Set nodes and edges directly
 		setNodes(newNodes);
 		setEdges(newEdges);
 	}, [visibleSchemas, handleEditTable, handleDeleteTable, showFKNames, setNodes, setEdges]);
 
 	useEffect(() => {
-		console.log('[Webview] Mounted, requesting database state');
 		vscode.postMessage({ command: 'getDatabaseState' });
 
 		const handleMessage = (event: MessageEvent) => {
 			const message = event.data;
-			console.log('[Webview] Received message:', message.command, message);
 			
 			if (message.command === 'updateDatabase') {
-				console.log('[Webview] Database received:', message.database);
-				if (message.database) {
-					console.log('[Webview] Schemas:', message.database.schemas?.length);
-					message.database.schemas?.forEach((schema: any) => {
-						console.log(`[Webview]   Schema: ${schema.name}, Tables: ${schema.tables?.length}`);
-					});
-				}
 				// Only reset layout flag when a different database is loaded (not on incremental updates
 				// to the same database). Resetting unconditionally caused fitView to fire after every
 				// edit, snapping the pan/zoom back to the start position.
@@ -702,7 +678,7 @@ export const App: React.FC = () => {
 	const onConnect = useCallback(
 		(connection: Connection) => {
 			if (!currentDatabase) {
-				console.log('[FK Creation] No database available');
+				console.warn('[FK Creation] No database available');
 				return;
 			}
 
@@ -730,7 +706,7 @@ export const App: React.FC = () => {
 			// because we don't yet know which will be the FK and which will be referenced.
 			// The system determines direction based on PK/UNIQUE constraints, not drag direction.
 			if (!sourceHandle || !targetHandle) {
-				console.log('[FK Creation] Missing handle IDs');
+				console.warn('[FK Creation] Missing handle IDs');
 				return;
 			}
 			
@@ -738,7 +714,6 @@ export const App: React.FC = () => {
 			const side2 = parseHandle(targetHandle);
 
 			if (!side1 || !side2) {
-				console.log('[FK Creation] Invalid handle format');
 				vscode.postMessage({ 
 					command: 'showError', 
 					text: 'Invalid connection handles' 
@@ -746,15 +721,12 @@ export const App: React.FC = () => {
 				return;
 			}
 
-			console.log('[FK Creation] Side 1 (drag source):', side1);
-			console.log('[FK Creation] Side 2 (drag target):', side2);
-
 			// Find schemas and tables for both sides
 			const schema1 = currentDatabase.schemas.find(s => s.name === side1.schema);
 			const schema2 = currentDatabase.schemas.find(s => s.name === side2.schema);
 
 			if (!schema1 || !schema2) {
-				console.log('[FK Creation] Schema not found');
+				console.warn('[FK Creation] Schema not found');
 				vscode.postMessage({ 
 					command: 'showError', 
 					text: 'Schema not found' 
@@ -766,7 +738,7 @@ export const App: React.FC = () => {
 			const table2 = schema2.tables.find(t => t.name === side2.table);
 
 			if (!table1 || !table2) {
-				console.log('[FK Creation] Table not found');
+				console.warn('[FK Creation] Table not found');
 				vscode.postMessage({ 
 					command: 'showError', 
 					text: 'Table not found' 
@@ -778,7 +750,7 @@ export const App: React.FC = () => {
 			const column2 = table2.columns.find(c => c.name === side2.column);
 
 			if (!column1 || !column2) {
-				console.log('[FK Creation] Column not found');
+				console.warn('[FK Creation] Column not found');
 				vscode.postMessage({ 
 					command: 'showError', 
 					text: 'Column not found' 
@@ -823,16 +795,13 @@ export const App: React.FC = () => {
 			const column1IsPKOrUnique = isColumnReferenceable(column1, table1);
 			const column2IsPKOrUnique = isColumnReferenceable(column2, table2);
 
-			console.log('[FK Creation] Column 1 PK/UNIQUE:', column1IsPKOrUnique, `(PK: ${column1.isPrimaryKey}, UNIQUE: ${column1.isUniqueConstraint})`);
-			console.log('[FK Creation] Column 2 PK/UNIQUE:', column2IsPKOrUnique, `(PK: ${column2.isPrimaryKey}, UNIQUE: ${column2.isUniqueConstraint})`);
-
 			// ========================================================================
 			// MSSQL VALIDATION: Exactly one side must be PK or UNIQUE
 			// This ensures referential integrity - FK must point to a unique column
 			// ========================================================================
 			
 			if (!column1IsPKOrUnique && !column2IsPKOrUnique) {
-				console.log('[FK Creation] Neither column is PK or UNIQUE');
+				console.warn('[FK Creation] Neither column is PK or UNIQUE');
 				vscode.postMessage({ 
 					command: 'showError', 
 					text: 'One column must be PRIMARY KEY or UNIQUE. Referenced column must have a unique constraint.' 
@@ -841,7 +810,7 @@ export const App: React.FC = () => {
 			}
 
 			if (column1IsPKOrUnique && column2IsPKOrUnique) {
-				console.log('[FK Creation] Both columns are PK or UNIQUE');
+				console.warn('[FK Creation] Both columns are PK or UNIQUE');
 				vscode.postMessage({ 
 					command: 'showError', 
 					text: 'Ambiguous relationship: only one column may be the referenced key. Both columns are PRIMARY KEY or UNIQUE.' 
@@ -886,11 +855,6 @@ export const App: React.FC = () => {
 			}
 
 			// Direction has been intelligently determined - drag direction is now irrelevant
-			console.log('[FK Creation] ✓ Direction auto-detected (handle-agnostic):', {
-				fk: `${fkSide.schema}.${fkSide.table}.${fkSide.column}`,
-				references: `${refSide.schema}.${refSide.table}.${refSide.column}`,
-				basis: column1IsPKOrUnique ? 'side1 has PK/UNIQUE' : 'side2 has PK/UNIQUE'
-			});
 
 			// Validation: Check if FK column already has a FK
 			if (fkColumn.isForeignKey) {
@@ -899,14 +863,14 @@ export const App: React.FC = () => {
 					fkColumn.foreignKeyRef.schema === refSide.schema &&
 					fkColumn.foreignKeyRef.table === refSide.table &&
 					fkColumn.foreignKeyRef.column === refSide.column) {
-					console.log('[FK Creation] Duplicate FK relationship');
+					console.warn('[FK Creation] Duplicate FK relationship');
 					vscode.postMessage({ 
 						command: 'showError', 
 						text: `Foreign key already exists between ${fkSide.table}.${fkSide.column} and ${refSide.table}.${refSide.column}` 
 					});
 					return;
 				}
-				console.log('[FK Creation] FK column already has FK to different table');
+				console.warn('[FK Creation] FK column already has FK to different table');
 				vscode.postMessage({ 
 					command: 'showError', 
 					text: `Column "${fkColumn.name}" already has a foreign key constraint. Remove the existing FK first.` 
@@ -920,7 +884,7 @@ export const App: React.FC = () => {
 				refColumn.foreignKeyRef.schema === fkSide.schema &&
 				refColumn.foreignKeyRef.table === fkSide.table &&
 				refColumn.foreignKeyRef.column === fkSide.column) {
-				console.log('[FK Creation] Circular FK detected');
+				console.warn('[FK Creation] Circular FK detected');
 				vscode.postMessage({ 
 					command: 'showError', 
 					text: `Cannot create circular foreign key: ${refSide.table}.${refSide.column} already references ${fkSide.table}.${fkSide.column}` 
@@ -931,7 +895,7 @@ export const App: React.FC = () => {
 			// Validation: Check compatible data types
 			const normalizeType = (type: string) => type.replace(/\(.*\)/, '').toUpperCase();
 			if (normalizeType(fkColumn.type) !== normalizeType(refColumn.type)) {
-				console.log('[FK Creation] Incompatible data types');
+				console.warn('[FK Creation] Incompatible data types');
 				vscode.postMessage({ 
 					command: 'showError', 
 					text: `Data types are incompatible: ${fkColumn.type} vs ${refColumn.type}. Both columns must have matching types.` 
@@ -958,12 +922,6 @@ export const App: React.FC = () => {
 			});
 
 			const updatedTable = { ...fkTable, columns: updatedColumns };
-
-			console.log('[FK Creation] Creating FK:', {
-				from: `${fkSide.schema}.${fkSide.table}.${fkSide.column}`,
-				to: `${refSide.schema}.${refSide.table}.${refSide.column}`,
-				constraint: `FK_${fkSide.table}_${fkSide.column}`
-			});
 
 			// Update via extension (same underlying method as button-based FK creation)
 			vscode.postMessage({
@@ -994,7 +952,6 @@ export const App: React.FC = () => {
 				updateNodesFromDatabase(updatedDatabase);
 			}
 
-		console.log('[FK Creation] ✓ FK created successfully via handle-agnostic bidirectional logic');
 	},
 	[currentDatabase, setCurrentDatabase, updateNodesFromDatabase]
 );

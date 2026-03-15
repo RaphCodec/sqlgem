@@ -245,9 +245,6 @@ export function activate(context: vscode.ExtensionContext) {
 			const folderUri = vscode.Uri.joinPath(workspaceFolders[0].uri, pick);
 			const databaseSqlUri = vscode.Uri.joinPath(folderUri, 'database.sql');
 
-			console.log(`Loading database from folder: ${pick}`);
-			console.log(`Looking for database.sql file...`);
-
 			// Check if database.sql exists
 			let databaseSqlExists = false;
 			try {
@@ -267,24 +264,9 @@ export function activate(context: vscode.ExtensionContext) {
 			// Read database.sql file
 			const bytes = await vscode.workspace.fs.readFile(databaseSqlUri);
 			const sqlContent = new TextDecoder().decode(bytes);
-			console.log(`Read database.sql: ${sqlContent.length} bytes`);
-			console.log('SQL preview (first 500 chars):', sqlContent.substring(0, 500));
 
 			// Parse SQL content using enhanced parser (supports IF NOT EXISTS patterns)
 			const db = parseSQLToDatabase(sqlContent, pick);
-
-			console.log(`Parsed database: ${db.name}`);
-			console.log(`Schemas found: ${db.schemas.length}`, db.schemas.map(s => `${s.name} (${s.tables.length} tables)`));
-			db.schemas.forEach(schema => {
-				console.log(`Schema ${schema.name}:`);
-				schema.tables.forEach(table => {
-					console.log(`  Table ${table.name}: ${table.columns.length} columns`);
-					table.columns.forEach(col => {
-						const fkInfo = col.isForeignKey ? ` -> ${col.foreignKeyRef?.schema}.${col.foreignKeyRef?.table}(${col.foreignKeyRef?.column})` : '';
-						console.log(`    ${col.name} ${col.type}${col.isPrimaryKey ? ' PK' : ''}${fkInfo}`);
-					});
-				});
-			});
 
 			currentDatabase = db;
 			currentDatabaseFolderUri = folderUri;
@@ -300,8 +282,6 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 
 			panel.webview.postMessage({ command: 'updateDatabase', database: currentDatabase, schemaColors });
-			console.log('Sent updateDatabase message to webview');
-			
 			vscode.window.showInformationMessage(`Loaded database "${pick}" from database.sql`);
 		} catch (error) {
 			console.error('Error loading database:', error);
@@ -342,8 +322,6 @@ export function activate(context: vscode.ExtensionContext) {
 	}
 
 	async function handleAddTable(schemaName: string, table: Table, panel: vscode.WebviewPanel) {
-		console.log('handleAddTable called', { schemaName, table, currentDatabase });
-		
 		if (!currentDatabase) {
 			vscode.window.showErrorMessage('Create a database first');
 			return;
@@ -362,7 +340,6 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 		
 		try {
-			console.log('Adding table:', table.name);
 			schema.tables.push(table);
 
 			// Update in-memory only (no file write)
@@ -377,8 +354,6 @@ export function activate(context: vscode.ExtensionContext) {
 	}
 
 	async function handleUpdateTable(schemaName: string, oldTableName: string, table: Table, panel: vscode.WebviewPanel) {
-		console.log('handleUpdateTable called', { schemaName, oldTableName, table, currentDatabase });
-		
 		if (!currentDatabase) {
 			vscode.window.showErrorMessage('Create a database first');
 			return;
