@@ -929,6 +929,66 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	}
 
+	/**
+	 * Scans the database folder for existing migration files (m###-*) and
+	 * returns the next version tag, e.g. "m001", "m002", …
+	 */
+	async function getNextMigrationVersion(folderUri: vscode.Uri): Promise<string> {
+		let maxVersion = 0;
+		try {
+			const entries = await vscode.workspace.fs.readDirectory(folderUri);
+			for (const [name] of entries) {
+				const m = name.match(/^m(\d+)-/i);
+				if (m) {
+					const n = parseInt(m[1], 10);
+					if (n > maxVersion) {
+						maxVersion = n;
+					}
+				}
+			}
+		} catch {
+			// Folder may not exist yet; start from 0
+		}
+		const next = maxVersion + 1;
+		return `m${String(next).padStart(3, '0')}`;
+	}
+
+	/**
+	 * Derives a short, URL-friendly description slug from migration content.
+	 * Examples: "Add-Users-Table", "Alter-Orders-Table", "Schema-Changes"
+	 */
+	function buildMigrationDescription(content: import('./migration/MigrationModel').MigrationContent): string {
+		const creates = content.tables?.create ?? [];
+		const drops   = content.tables?.drop   ?? [];
+		const alters  = content.tables?.alter  ?? [];
+
+		const total = creates.length + drops.length + alters.length;
+
+		if (total === 0) {
+			return 'Schema-Changes';
+		}
+
+		// Single-table change → descriptive name
+		if (total === 1) {
+			if (creates.length === 1) {
+				return `Add-${creates[0].name}-Table`;
+			}
+			if (drops.length === 1) {
+				return `Drop-${drops[0].name}-Table`;
+			}
+			if (alters.length === 1) {
+				return `Alter-${alters[0].name}-Table`;
+			}
+		}
+
+		// Multiple tables – summarise
+		const parts: string[] = [];
+		if (creates.length > 0) { parts.push(`Add-${creates.length}-Table${creates.length > 1 ? 's' : ''}`); }
+		if (drops.length   > 0) { parts.push(`Drop-${drops.length}-Table${drops.length   > 1 ? 's' : ''}`); }
+		if (alters.length  > 0) { parts.push(`Alter-${alters.length}-Table${alters.length  > 1 ? 's' : ''}`); }
+		return parts.join('-');
+	}
+
 	async function handleMakeMigration(panel: vscode.WebviewPanel): Promise<void> {
 		if (!currentDatabase) {
 			vscode.window.showErrorMessage('No database loaded');
@@ -960,9 +1020,8 @@ export function activate(context: vscode.ExtensionContext) {
 
 			// Build migration file with both up and down sections
 			const builder = new MigrationBuilder();
-			const timestamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-');
 			const file = builder.buildFile(upDiff, downDiff, {
-				description: `Migration for ${currentDatabase.name} (${timestamp})`,
+				description: '',  // filled in below once we have the slug
 			});
 
 			if (!builder.hasChanges(file.up)) {
@@ -972,16 +1031,31 @@ export function activate(context: vscode.ExtensionContext) {
 				return;
 			}
 
+			// Build the versioned file name: m001-YYYY-MM-DD-HH-MM-SS-Description.json
+			const now = new Date();
+			const pad = (n: number) => String(n).padStart(2, '0');
+			const timestamp = [
+				now.getFullYear(),
+				pad(now.getMonth() + 1),
+				pad(now.getDate()),
+				pad(now.getHours()),
+				pad(now.getMinutes()),
+				pad(now.getSeconds()),
+			].join('-');
+			const version   = await getNextMigrationVersion(currentDatabaseFolderUri);
+			const slug      = buildMigrationDescription(file.up);
+			const fileName  = `${version}-${timestamp}-${slug}.json`;
+
+			file.description = `${slug.replace(/-/g, ' ')}`;
+			file.version     = `${version}`;
+
 			// Generate idempotent MSSQL SQL for both directions
 			const generator = new MigrationSqlGenerator();
-			const sqlUp = generator.generateForFile(file, 'up');
+			const sqlUp   = generator.generateForFile(file, 'up');
 			const sqlDown = generator.generateForFile(file, 'down');
 
 			// Persist the migration JSON alongside the diagram files
-			const migrationJsonUri = vscode.Uri.joinPath(
-				currentDatabaseFolderUri,
-				`migration-${timestamp}.json`
-			);
+			const migrationJsonUri = vscode.Uri.joinPath(currentDatabaseFolderUri, fileName);
 			await vscode.workspace.fs.writeFile(
 				migrationJsonUri,
 				new TextEncoder().encode(JSON.stringify(file, null, 2))
@@ -992,7 +1066,7 @@ export function activate(context: vscode.ExtensionContext) {
 				command: 'showMigrationPreview',
 				sqlUp,
 				sqlDown,
-				fileName: `migration-${timestamp}.json`,
+				fileName,
 			});
 		} catch (error) {
 			vscode.window.showErrorMessage(`Failed to generate migration: ${error}`);
