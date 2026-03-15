@@ -6,6 +6,7 @@ import { MigrationSqlGenerator } from './migration/MigrationSqlGenerator';
 import { MigrationLoader, MigrationLoadError } from './migration/MigrationLoader';
 import { SchemaDiffEngine } from './migration/SchemaDiffEngine';
 import { MigrationBuilder } from './migration/MigrationBuilder';
+import { createSchemaSnapshot, SnapshotError } from './snapshot/createSnapshot';
 
 interface Database {
 	name: string;
@@ -146,6 +147,9 @@ export function activate(context: vscode.ExtensionContext) {
 						break;
 					case 'previewExistingMigration':
 						await handlePreviewExistingMigration(panel);
+						break;
+					case 'createSnapshot':
+						await handleCreateSnapshot(panel);
 						break;
 				}
 			},
@@ -1173,6 +1177,33 @@ export function activate(context: vscode.ExtensionContext) {
 			text += possible.charAt(Math.floor(Math.random() * possible.length));
 		}
 		return text;
+	}
+
+	/**
+	 * Creates a schema snapshot of the current in-memory database model and
+	 * writes it to `<databaseFolder>/snapshots/s-###-YYYYMMDD-HHmmss.sql`.
+	 */
+	async function handleCreateSnapshot(_panel: vscode.WebviewPanel): Promise<void> {
+		if (!currentDatabase) {
+			vscode.window.showErrorMessage('No database loaded. Load or create a database first.');
+			return;
+		}
+
+		if (!currentDatabaseFolderUri) {
+			vscode.window.showErrorMessage('No database folder found. Load or create a database first.');
+			return;
+		}
+
+		try {
+			const fileName = await createSchemaSnapshot(currentDatabase, currentDatabaseFolderUri);
+			vscode.window.showInformationMessage(`Snapshot created: ${fileName}`);
+		} catch (err) {
+			if (err instanceof SnapshotError) {
+				vscode.window.showErrorMessage(`Snapshot failed: ${err.message}`);
+			} else {
+				vscode.window.showErrorMessage(`Failed to create snapshot: ${err}`);
+			}
+		}
 	}
 }
 

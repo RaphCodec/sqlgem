@@ -38,6 +38,7 @@ import {
 	ArrowSyncRegular,
 	CopyRegular,
 	CheckmarkRegular,
+	CameraRegular,
 } from '@fluentui/react-icons';
 import {
 	ReactFlow,
@@ -1437,6 +1438,18 @@ const handleEdgesChange = useCallback((changes: any[]) => {
 							</MenuList>
 						</MenuPopover>
 					</Menu>
+				</Tooltip>
+
+				<Tooltip content="Create Snapshot" relationship="label">
+					<Button
+						appearance="subtle"
+						size="small"
+						onClick={() => vscode.postMessage({ command: 'createSnapshot' })}
+						disabled={!currentDatabase}
+						aria-label="Create Snapshot"
+					>
+						<CameraRegular />
+					</Button>
 				</Tooltip>
 
 			{/* Settings menu: combines Safe Create, FK names, and Dark Mode toggles */}
