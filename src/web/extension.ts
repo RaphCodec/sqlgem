@@ -894,31 +894,53 @@ export function activate(context: vscode.ExtensionContext) {
 	}
 
 	async function handlePreviewExistingMigration(panel: vscode.WebviewPanel): Promise<void> {
-		const uris = await vscode.window.showOpenDialog({
-			canSelectMany: false,
-			filters: { 'Migration JSON': ['json'] },
-			title: 'Select a migration JSON file',
-			defaultUri: currentDatabaseFolderUri ?? undefined,
+		if (!currentDatabaseFolderUri) {
+			vscode.window.showErrorMessage('No database loaded. Load or create a database first.');
+			return;
+		}
+
+		// Scan the database folder for migration files (m###-*.json)
+		let migrationFiles: string[] = [];
+		try {
+			const entries = await vscode.workspace.fs.readDirectory(currentDatabaseFolderUri);
+			migrationFiles = entries
+				.filter(([name, type]) => type === vscode.FileType.File && /^m\d+-.*\.json$/i.test(name))
+				.map(([name]) => name)
+				.sort(); // alphabetical = chronological because of m001, m002... prefix
+		} catch {
+			vscode.window.showErrorMessage('Failed to read the database folder.');
+			return;
+		}
+
+		if (migrationFiles.length === 0) {
+			vscode.window.showInformationMessage('No migration files found in the current database folder.');
+			return;
+		}
+
+		const pick = await vscode.window.showQuickPick(migrationFiles, {
+			placeHolder: 'Select a migration to preview',
+			title: 'Preview Migration',
 		});
 
-		if (!uris || uris.length === 0) {
+		if (!pick) {
 			return; // user cancelled
 		}
 
+		const fileUri = vscode.Uri.joinPath(currentDatabaseFolderUri, pick);
+
 		try {
 			const loader = new MigrationLoader();
-			const file = await loader.load(uris[0]);
+			const file = await loader.load(fileUri);
 
 			const generator = new MigrationSqlGenerator();
 			const sqlUp = generator.generateForFile(file, 'up');
 			const sqlDown = generator.generateForFile(file, 'down');
 
-			const fileName = uris[0].path.split('/').pop() ?? uris[0].toString();
 			panel.webview.postMessage({
 				command: 'showMigrationPreview',
 				sqlUp,
 				sqlDown,
-				fileName,
+				fileName: pick,
 			});
 		} catch (err) {
 			if (err instanceof MigrationLoadError) {
