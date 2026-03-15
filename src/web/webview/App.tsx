@@ -36,6 +36,8 @@ import {
 	FilterRegular,
 	SettingsRegular,
 	ArrowSyncRegular,
+	CopyRegular,
+	CheckmarkRegular,
 } from '@fluentui/react-icons';
 import {
 	ReactFlow,
@@ -247,6 +249,7 @@ export const App: React.FC = () => {
 	const [migrationSqlUp, setMigrationSqlUp] = useState('');
 	const [migrationSqlDown, setMigrationSqlDown] = useState('');
 	const [migrationDirection, setMigrationDirection] = useState<'up' | 'down'>('up');
+	const [copiedSQL, setCopiedSQL] = useState(false);
 	const [saveFormat, setSaveFormat] = useState<'mssql' | 'dbml'>(() => {
 		return (localStorage.getItem('sqlgem-save-format') as 'mssql' | 'dbml') || 'mssql';
 	});
@@ -1617,6 +1620,21 @@ const handleEdgesChange = useCallback((changes: any[]) => {
 							<div className={styles.sqlPreview}>{previewSQL}</div>
 						</DialogContent>
 						<DialogActions>
+							<Tooltip content={copiedSQL ? 'Copied!' : 'Copy SQL to clipboard'} relationship="label">
+								<Button
+									appearance="subtle"
+									size="small"
+									icon={copiedSQL ? <CheckmarkRegular /> : <CopyRegular />}
+									onClick={() => {
+										navigator.clipboard.writeText(previewSQL).then(() => {
+											setCopiedSQL(true);
+											setTimeout(() => setCopiedSQL(false), 2000);
+										});
+									}}
+								>
+									{copiedSQL ? 'Copied!' : 'Copy SQL'}
+								</Button>
+							</Tooltip>
 							<Button appearance="subtle" size="small" onClick={() => setPreviewDialogOpen(false)}>
 								Close
 							</Button>
