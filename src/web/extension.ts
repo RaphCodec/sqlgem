@@ -231,7 +231,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 		try {
 			const entries = await vscode.workspace.fs.readDirectory(workspaceFolders[0].uri);
-			const dirs = entries.filter(([name, type]) => type === vscode.FileType.Directory).map(([name]) => name);
+			const dirs = entries.filter(([name, type]) => type === vscode.FileType.Directory && name !== '.git' && name !== '.github').map(([name]) => name);
 			if (dirs.length === 0) {
 				vscode.window.showInformationMessage('No folders found in workspace to load');
 				return;
