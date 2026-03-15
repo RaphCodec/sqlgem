@@ -1061,6 +1061,9 @@ export function activate(context: vscode.ExtensionContext) {
 				new TextEncoder().encode(JSON.stringify(file, null, 2))
 			);
 
+			// Update database.sql so the next diff baseline matches the current schema
+			await writeDatabaseSQL(false, 'mssql');
+
 			// Send the SQL preview back to the webview
 			panel.webview.postMessage({
 				command: 'showMigrationPreview',
