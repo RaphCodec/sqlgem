@@ -10,6 +10,36 @@
 // Top-level definition
 // ---------------------------------------------------------------------------
 
+/**
+ * The body of one migration direction (up or down).
+ * SQL generator operates on this type.
+ */
+export interface MigrationContent {
+    /** Pre-migration cleanup (drop FKs / indexes before structural changes) */
+    pre?: PreMigration;
+    tables?: TablesMigration;
+    constraints?: ConstraintsMigration;
+    indexes?: IndexDefinition[];
+}
+
+/**
+ * The on-disk migration file format (v2).
+ * Contains both an upgrade (up) and a downgrade (down) section.
+ */
+export interface MigrationFile {
+    /** Timestamp-based version string, e.g. "2026.03.14.001" */
+    version: string;
+    description?: string;
+    /** When true the generator wraps all statements in a transaction */
+    transaction?: boolean;
+    up: MigrationContent;
+    down: MigrationContent;
+}
+
+/**
+ * Legacy flat migration format (v1).
+ * Kept for backward compatibility – new files use MigrationFile.
+ */
 export interface MigrationDefinition {
     /** Semantic version of the migration format, e.g. "1.0" */
     version: string;

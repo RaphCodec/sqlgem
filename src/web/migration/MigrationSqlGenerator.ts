@@ -24,6 +24,8 @@
 import { SqlBuilder, MssqlDialect, SqlDialect } from './SqlBuilder';
 import type {
     MigrationDefinition,
+    MigrationContent,
+    MigrationFile,
     ColumnDefinition,
     CreateTableDefinition,
     AlterTableDefinition,
@@ -61,7 +63,9 @@ export interface GeneratorOptions {
 // ---------------------------------------------------------------------------
 
 export class MigrationSqlGenerator {
-    private readonly _builder: SqlBuilder;
+    // Note: _builder is reassigned at the start of each generate() call so
+    // the same instance can safely be used for multiple generations.
+    private _builder: SqlBuilder;
     private readonly _options: Required<Omit<GeneratorOptions, 'transaction'>> &
         Pick<GeneratorOptions, 'transaction'>;
 
@@ -74,9 +78,26 @@ export class MigrationSqlGenerator {
     }
 
     /**
+     * Generate SQL for the given direction of a MigrationFile.
+     */
+    generateForFile(file: MigrationFile, direction: 'up' | 'down'): string {
+        const content: MigrationDefinition = {
+            version: file.version,
+            description: file.description,
+            transaction: file.transaction,
+            ...file[direction],
+        };
+        return this.generate(content);
+    }
+
+    /**
      * Generate the full SQL migration script for the supplied definition.
+     * @deprecated Prefer generateForFile() for new MigrationFile objects.
      */
     generate(migration: MigrationDefinition): string {
+        // Create a fresh builder for each call so this instance is reusable.
+        this._builder = new SqlBuilder(this._options.dialect);
+
         const useTransaction =
             this._options.transaction ?? migration.transaction ?? false;
 

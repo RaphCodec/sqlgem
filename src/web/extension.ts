@@ -907,15 +907,17 @@ export function activate(context: vscode.ExtensionContext) {
 
 		try {
 			const loader = new MigrationLoader();
-			const migration = await loader.load(uris[0]);
+			const file = await loader.load(uris[0]);
 
 			const generator = new MigrationSqlGenerator();
-			const sql = generator.generate(migration);
+			const sqlUp = generator.generateForFile(file, 'up');
+			const sqlDown = generator.generateForFile(file, 'down');
 
 			const fileName = uris[0].path.split('/').pop() ?? uris[0].toString();
 			panel.webview.postMessage({
 				command: 'showMigrationPreview',
-				sql,
+				sqlUp,
+				sqlDown,
 				fileName,
 			});
 		} catch (err) {
@@ -951,27 +953,29 @@ export function activate(context: vscode.ExtensionContext) {
 				previousDatabase = { name: currentDatabase.name, schemas: [] };
 			}
 
-			// Diff previous (saved) vs current (in-memory)
+			// Diff previous (saved) → current (upgrade) and current → previous (downgrade)
 			const engine = new SchemaDiffEngine();
-			const diff = engine.diff(previousDatabase, currentDatabase);
+			const upDiff = engine.diff(previousDatabase, currentDatabase);
+			const downDiff = engine.diff(currentDatabase, previousDatabase);
 
-			// Build migration definition
+			// Build migration file with both up and down sections
 			const builder = new MigrationBuilder();
 			const timestamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-');
-			const migration = builder.build(diff, {
+			const file = builder.buildFile(upDiff, downDiff, {
 				description: `Migration for ${currentDatabase.name} (${timestamp})`,
 			});
 
-			if (!builder.hasChanges(migration)) {
+			if (!builder.hasChanges(file.up)) {
 				vscode.window.showInformationMessage(
 					'No schema changes detected between the saved file and the current diagram.'
 				);
 				return;
 			}
 
-			// Generate idempotent MSSQL SQL
+			// Generate idempotent MSSQL SQL for both directions
 			const generator = new MigrationSqlGenerator();
-			const sql = generator.generate(migration);
+			const sqlUp = generator.generateForFile(file, 'up');
+			const sqlDown = generator.generateForFile(file, 'down');
 
 			// Persist the migration JSON alongside the diagram files
 			const migrationJsonUri = vscode.Uri.joinPath(
@@ -980,13 +984,14 @@ export function activate(context: vscode.ExtensionContext) {
 			);
 			await vscode.workspace.fs.writeFile(
 				migrationJsonUri,
-				new TextEncoder().encode(JSON.stringify(migration, null, 2))
+				new TextEncoder().encode(JSON.stringify(file, null, 2))
 			);
 
 			// Send the SQL preview back to the webview
 			panel.webview.postMessage({
 				command: 'showMigrationPreview',
-				sql,
+				sqlUp,
+				sqlDown,
 				fileName: `migration-${timestamp}.json`,
 			});
 		} catch (error) {

@@ -244,6 +244,9 @@ export const App: React.FC = () => {
 	const [previewTitle, setPreviewTitle] = useState('Preview');
 	const [previewFormat, setPreviewFormat] = useState<'dbml' | 'mssql'>('dbml');
 	const [mssqlPreviewCache, setMssqlPreviewCache] = useState('');
+	const [migrationSqlUp, setMigrationSqlUp] = useState('');
+	const [migrationSqlDown, setMigrationSqlDown] = useState('');
+	const [migrationDirection, setMigrationDirection] = useState<'up' | 'down'>('up');
 	const [saveFormat, setSaveFormat] = useState<'mssql' | 'dbml'>(() => {
 		return (localStorage.getItem('sqlgem-save-format') as 'mssql' | 'dbml') || 'mssql';
 	});
@@ -629,7 +632,10 @@ export const App: React.FC = () => {
 				// Dialog is already open when switching format; open it if not yet open
 				setPreviewDialogOpen(true);
 			} else if (message.command === 'showMigrationPreview') {
-				setPreviewSQL(message.sql);
+				setMigrationSqlUp(message.sqlUp ?? '');
+				setMigrationSqlDown(message.sqlDown ?? '');
+				setMigrationDirection('up');
+				setPreviewSQL(message.sqlUp ?? '');
 				setPreviewFormat('mssql');
 				setPreviewTitle(`Migration Preview${message.fileName ? ` — ${message.fileName}` : ''}`);
 				setPreviewDialogOpen(true);
@@ -1586,6 +1592,24 @@ const handleEdgesChange = useCallback((changes: any[]) => {
 									<option value="dbml">DBML</option>
 									<option value="mssql">MSSQL</option>
 								</Select>
+								)}
+								{previewTitle.startsWith('Migration') && (
+								<>
+									<Button
+										size="small"
+										appearance={migrationDirection === 'up' ? 'primary' : 'subtle'}
+										onClick={() => { setMigrationDirection('up'); setPreviewSQL(migrationSqlUp); }}
+									>
+										↑ Upgrade
+									</Button>
+									<Button
+										size="small"
+										appearance={migrationDirection === 'down' ? 'primary' : 'subtle'}
+										onClick={() => { setMigrationDirection('down'); setPreviewSQL(migrationSqlDown); }}
+									>
+										↓ Downgrade
+									</Button>
+								</>
 								)}
 							</div>
 						</DialogTitle>
