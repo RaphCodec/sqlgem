@@ -20,6 +20,10 @@
       {
         "command": "sqlgem.showWindow",
         "title": "SQLGem: Open ER Diagram"
+      },
+      {
+        "command": "sqlgem.compareSchemas",
+        "title": "SQLGem: Compare Schemas"
       }
     ]
   },
