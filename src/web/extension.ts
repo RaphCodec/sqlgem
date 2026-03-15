@@ -3,6 +3,7 @@
 import * as vscode from 'vscode';
 import { parseSQLToDatabase } from './sqlParser';
 import { MigrationSqlGenerator } from './migration/MigrationSqlGenerator';
+import { MigrationLoader, MigrationLoadError } from './migration/MigrationLoader';
 import { SchemaDiffEngine } from './migration/SchemaDiffEngine';
 import { MigrationBuilder } from './migration/MigrationBuilder';
 
@@ -142,6 +143,9 @@ export function activate(context: vscode.ExtensionContext) {
 						break;
 					case 'makeMigration':
 						await handleMakeMigration(panel);
+						break;
+					case 'previewExistingMigration':
+						await handlePreviewExistingMigration(panel);
 						break;
 				}
 			},
@@ -887,6 +891,40 @@ export function activate(context: vscode.ExtensionContext) {
 			command: 'showSQLPreview',
 			sql: sqlContent
 		});
+	}
+
+	async function handlePreviewExistingMigration(panel: vscode.WebviewPanel): Promise<void> {
+		const uris = await vscode.window.showOpenDialog({
+			canSelectMany: false,
+			filters: { 'Migration JSON': ['json'] },
+			title: 'Select a migration JSON file',
+			defaultUri: currentDatabaseFolderUri ?? undefined,
+		});
+
+		if (!uris || uris.length === 0) {
+			return; // user cancelled
+		}
+
+		try {
+			const loader = new MigrationLoader();
+			const migration = await loader.load(uris[0]);
+
+			const generator = new MigrationSqlGenerator();
+			const sql = generator.generate(migration);
+
+			const fileName = uris[0].path.split('/').pop() ?? uris[0].toString();
+			panel.webview.postMessage({
+				command: 'showMigrationPreview',
+				sql,
+				fileName,
+			});
+		} catch (err) {
+			if (err instanceof MigrationLoadError) {
+				vscode.window.showErrorMessage(`Migration error: ${err.message}`);
+			} else {
+				vscode.window.showErrorMessage(`Failed to preview migration: ${err}`);
+			}
+		}
 	}
 
 	async function handleMakeMigration(panel: vscode.WebviewPanel): Promise<void> {

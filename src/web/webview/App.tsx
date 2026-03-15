@@ -1449,15 +1449,28 @@ const handleEdgesChange = useCallback((changes: any[]) => {
 				</Tooltip>
 
 				<Tooltip content="Make Migration" relationship="label">
-					<Button
-						appearance="subtle"
-						size="small"
-						onClick={() => vscode.postMessage({ command: 'makeMigration' })}
-						disabled={!currentDatabase}
-						aria-label="Make Migration"
-					>
-						<ArrowSyncRegular />
-					</Button>
+					<Menu>
+						<MenuTrigger disableButtonEnhancement>
+							<Button
+								appearance="subtle"
+								size="small"
+								disabled={!currentDatabase}
+								aria-label="Make Migration"
+							>
+								<ArrowSyncRegular />
+							</Button>
+						</MenuTrigger>
+						<MenuPopover>
+							<MenuList>
+								<MenuItem onClick={() => vscode.postMessage({ command: 'makeMigration' })}>
+									Generate New Migration
+								</MenuItem>
+								<MenuItem onClick={() => vscode.postMessage({ command: 'previewExistingMigration' })}>
+									Preview Existing Migration
+								</MenuItem>
+							</MenuList>
+						</MenuPopover>
+					</Menu>
 				</Tooltip>
 
 			{/* Settings menu: combines Safe Create, FK names, and Dark Mode toggles */}
