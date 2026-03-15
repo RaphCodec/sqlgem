@@ -899,21 +899,21 @@ export function activate(context: vscode.ExtensionContext) {
 			return;
 		}
 
-		// Scan the database folder for migration files (m###-*.json)
+		// Scan the migrations subfolder for migration files (m###-*.json)
+		const migrationsFolderUri = vscode.Uri.joinPath(currentDatabaseFolderUri, 'migrations');
 		let migrationFiles: string[] = [];
 		try {
-			const entries = await vscode.workspace.fs.readDirectory(currentDatabaseFolderUri);
+			const entries = await vscode.workspace.fs.readDirectory(migrationsFolderUri);
 			migrationFiles = entries
 				.filter(([name, type]) => type === vscode.FileType.File && /^m\d+-.*\.json$/i.test(name))
 				.map(([name]) => name)
 				.sort(); // alphabetical = chronological because of m001, m002... prefix
 		} catch {
-			vscode.window.showErrorMessage('Failed to read the database folder.');
-			return;
+			// Folder doesn't exist yet — treat as empty
 		}
 
 		if (migrationFiles.length === 0) {
-			vscode.window.showInformationMessage('No migration files found in the current database folder.');
+			vscode.window.showInformationMessage('No migration files found in the migrations folder.');
 			return;
 		}
 
@@ -926,7 +926,7 @@ export function activate(context: vscode.ExtensionContext) {
 			return; // user cancelled
 		}
 
-		const fileUri = vscode.Uri.joinPath(currentDatabaseFolderUri, pick);
+		const fileUri = vscode.Uri.joinPath(currentDatabaseFolderUri, 'migrations', pick);
 
 		try {
 			const loader = new MigrationLoader();
@@ -956,9 +956,10 @@ export function activate(context: vscode.ExtensionContext) {
 	 * returns the next version tag, e.g. "m001", "m002", …
 	 */
 	async function getNextMigrationVersion(folderUri: vscode.Uri): Promise<string> {
+		const migrationsFolderUri = vscode.Uri.joinPath(folderUri, 'migrations');
 		let maxVersion = 0;
 		try {
-			const entries = await vscode.workspace.fs.readDirectory(folderUri);
+			const entries = await vscode.workspace.fs.readDirectory(migrationsFolderUri);
 			for (const [name] of entries) {
 				const m = name.match(/^m(\d+)-/i);
 				if (m) {
@@ -1076,8 +1077,10 @@ export function activate(context: vscode.ExtensionContext) {
 			const sqlUp   = generator.generateForFile(file, 'up');
 			const sqlDown = generator.generateForFile(file, 'down');
 
-			// Persist the migration JSON alongside the diagram files
-			const migrationJsonUri = vscode.Uri.joinPath(currentDatabaseFolderUri, fileName);
+			// Persist the migration JSON in the migrations subfolder
+			const migrationsFolderUri = vscode.Uri.joinPath(currentDatabaseFolderUri, 'migrations');
+			await vscode.workspace.fs.createDirectory(migrationsFolderUri);
+			const migrationJsonUri = vscode.Uri.joinPath(migrationsFolderUri, fileName);
 			await vscode.workspace.fs.writeFile(
 				migrationJsonUri,
 				new TextEncoder().encode(JSON.stringify(file, null, 2))
