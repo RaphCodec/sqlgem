@@ -2,6 +2,9 @@
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
 import { parseSQLToDatabase } from './sqlParser';
+import { MigrationSqlGenerator } from './migration/MigrationSqlGenerator';
+import { SchemaDiffEngine } from './migration/SchemaDiffEngine';
+import { MigrationBuilder } from './migration/MigrationBuilder';
 
 interface Database {
 	name: string;
@@ -136,6 +139,9 @@ export function activate(context: vscode.ExtensionContext) {
 						break;
 					case 'showError':
 						vscode.window.showErrorMessage(message.text);
+						break;
+					case 'makeMigration':
+						await handleMakeMigration(panel);
 						break;
 				}
 			},
@@ -881,6 +887,73 @@ export function activate(context: vscode.ExtensionContext) {
 			command: 'showSQLPreview',
 			sql: sqlContent
 		});
+	}
+
+	async function handleMakeMigration(panel: vscode.WebviewPanel): Promise<void> {
+		if (!currentDatabase) {
+			vscode.window.showErrorMessage('No database loaded');
+			return;
+		}
+
+		if (!currentDatabaseFolderUri) {
+			vscode.window.showErrorMessage('No database folder found. Load or create a database first.');
+			return;
+		}
+
+		try {
+			// Read the last-saved schema from database.sql as the "previous" baseline
+			let previousDatabase: Database;
+			const databaseSqlUri = vscode.Uri.joinPath(currentDatabaseFolderUri, 'database.sql');
+			try {
+				const bytes = await vscode.workspace.fs.readFile(databaseSqlUri);
+				const sqlContent = new TextDecoder().decode(bytes);
+				previousDatabase = parseSQLToDatabase(sqlContent, currentDatabase.name);
+			} catch {
+				// No saved file yet – treat the previous state as empty
+				previousDatabase = { name: currentDatabase.name, schemas: [] };
+			}
+
+			// Diff previous (saved) vs current (in-memory)
+			const engine = new SchemaDiffEngine();
+			const diff = engine.diff(previousDatabase, currentDatabase);
+
+			// Build migration definition
+			const builder = new MigrationBuilder();
+			const timestamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-');
+			const migration = builder.build(diff, {
+				description: `Migration for ${currentDatabase.name} (${timestamp})`,
+			});
+
+			if (!builder.hasChanges(migration)) {
+				vscode.window.showInformationMessage(
+					'No schema changes detected between the saved file and the current diagram.'
+				);
+				return;
+			}
+
+			// Generate idempotent MSSQL SQL
+			const generator = new MigrationSqlGenerator();
+			const sql = generator.generate(migration);
+
+			// Persist the migration JSON alongside the diagram files
+			const migrationJsonUri = vscode.Uri.joinPath(
+				currentDatabaseFolderUri,
+				`migration-${timestamp}.json`
+			);
+			await vscode.workspace.fs.writeFile(
+				migrationJsonUri,
+				new TextEncoder().encode(JSON.stringify(migration, null, 2))
+			);
+
+			// Send the SQL preview back to the webview
+			panel.webview.postMessage({
+				command: 'showMigrationPreview',
+				sql,
+				fileName: `migration-${timestamp}.json`,
+			});
+		} catch (error) {
+			vscode.window.showErrorMessage(`Failed to generate migration: ${error}`);
+		}
 	}
 
 	async function writeDatabaseSQL(useIfNotExists: boolean = false, saveFormat: string = 'mssql'): Promise<void> {

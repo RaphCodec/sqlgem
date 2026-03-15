@@ -35,6 +35,7 @@ import {
 	TagRegular,
 	FilterRegular,
 	SettingsRegular,
+	ArrowSyncRegular,
 } from '@fluentui/react-icons';
 import {
 	ReactFlow,
@@ -240,6 +241,7 @@ export const App: React.FC = () => {
 
 	// SQL Preview state
 	const [previewSQL, setPreviewSQL] = useState('');
+	const [previewTitle, setPreviewTitle] = useState('Preview');
 	const [previewFormat, setPreviewFormat] = useState<'dbml' | 'mssql'>('dbml');
 	const [mssqlPreviewCache, setMssqlPreviewCache] = useState('');
 	const [saveFormat, setSaveFormat] = useState<'mssql' | 'dbml'>(() => {
@@ -420,6 +422,7 @@ export const App: React.FC = () => {
 		setPreviewSQL(dbmlContent);
 		setMssqlPreviewCache('');
 		setPreviewFormat('dbml');
+		setPreviewTitle('Preview');
 		setPreviewDialogOpen(true);
 	};
 
@@ -427,6 +430,7 @@ export const App: React.FC = () => {
 		setPreviewFormat(format);
 		if (format === 'dbml' && currentDatabase) {
 			setPreviewSQL(generateDBML(currentDatabase));
+			setPreviewTitle('Preview');
 		} else if (format === 'mssql') {
 			if (mssqlPreviewCache) {
 				setPreviewSQL(mssqlPreviewCache);
@@ -621,7 +625,13 @@ export const App: React.FC = () => {
 				setMssqlPreviewCache(message.sql);
 				setPreviewSQL(message.sql);
 				setPreviewFormat('mssql');
+				setPreviewTitle('Preview');
 				// Dialog is already open when switching format; open it if not yet open
+				setPreviewDialogOpen(true);
+			} else if (message.command === 'showMigrationPreview') {
+				setPreviewSQL(message.sql);
+				setPreviewFormat('mssql');
+				setPreviewTitle(`Migration Preview${message.fileName ? ` — ${message.fileName}` : ''}`);
 				setPreviewDialogOpen(true);
 			}
 		};
@@ -1438,6 +1448,18 @@ const handleEdgesChange = useCallback((changes: any[]) => {
 					</Button>
 				</Tooltip>
 
+				<Tooltip content="Make Migration" relationship="label">
+					<Button
+						appearance="subtle"
+						size="small"
+						onClick={() => vscode.postMessage({ command: 'makeMigration' })}
+						disabled={!currentDatabase}
+						aria-label="Make Migration"
+					>
+						<ArrowSyncRegular />
+					</Button>
+				</Tooltip>
+
 			{/* Settings menu: combines Safe Create, FK names, and Dark Mode toggles */}
 			<Menu>
 				<MenuTrigger disableButtonEnhancement>
@@ -1541,7 +1563,8 @@ const handleEdgesChange = useCallback((changes: any[]) => {
 					<DialogBody>
 						<DialogTitle>
 							<div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-								<span>Preview</span>
+								<span>{previewTitle}</span>
+								{!previewTitle.startsWith('Migration') && (
 								<Select
 									size="small"
 									value={previewFormat}
@@ -1550,6 +1573,7 @@ const handleEdgesChange = useCallback((changes: any[]) => {
 									<option value="dbml">DBML</option>
 									<option value="mssql">MSSQL</option>
 								</Select>
+								)}
 							</div>
 						</DialogTitle>
 						<DialogContent className={styles.previewContent}>
