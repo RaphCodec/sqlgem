@@ -75,15 +75,9 @@ const webExtensionConfig = {
 };
 
 /** @type WebpackConfig */
-const webviewConfig = {
+const webviewBaseConfig = {
 	mode: 'none',
 	target: 'web',
-	entry: './src/web/webview/index.tsx',
-	output: {
-		filename: 'webview.js',
-		path: path.join(__dirname, './dist/web'),
-		libraryTarget: 'umd',
-	},
 	resolve: {
 		extensions: ['.ts', '.tsx', '.js', '.jsx'],
 		fallback: {
@@ -124,4 +118,26 @@ const webviewConfig = {
 	devtool: 'nosources-source-map',
 };
 
-module.exports = [ webExtensionConfig, webviewConfig ];
+/** @type WebpackConfig */
+const webviewConfig = {
+	...webviewBaseConfig,
+	entry: './src/web/webview/index.tsx',
+	output: {
+		filename: 'webview.js',
+		path: path.join(__dirname, './dist/web'),
+		libraryTarget: 'umd',
+	},
+};
+
+/** @type WebpackConfig */
+const compareWebviewConfig = {
+	...webviewBaseConfig,
+	entry: './src/web/webview/compareView/index.tsx',
+	output: {
+		filename: 'compareWebview.js',
+		path: path.join(__dirname, './dist/web'),
+		libraryTarget: 'umd',
+	},
+};
+
+module.exports = [ webExtensionConfig, webviewConfig, compareWebviewConfig ];

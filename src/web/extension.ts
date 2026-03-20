@@ -7,10 +7,7 @@ import { MigrationLoader, MigrationLoadError } from './migration/MigrationLoader
 import { SchemaDiffEngine } from './migration/SchemaDiffEngine';
 import { MigrationBuilder } from './migration/MigrationBuilder';
 import { createSchemaSnapshot, SnapshotError } from './snapshot/createSnapshot';
-import { compareSchemas } from './schemaCompare/compareSchemas';
-import { extractFromSQLFile, extractFromDBMLFile, extractFromSnapshot, listSnapshotFiles } from './schemaCompare/extractSchema';
-import type { ExtractedSchema } from './schemaCompare/extractSchema';
-import { generateDiffHTML } from './schemaCompare/generateDiffOutput';
+import { SchemaComparePanel } from './schemaCompare/SchemaComparePanel';
 
 interface Database {
 	name: string;
@@ -165,8 +162,8 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(windowDisposable);
 	context.subscriptions.push(disposable);
 
-	const compareDisposable = vscode.commands.registerCommand('sqlgem.compareSchemas', async () => {
-		await handleCompareSchemas();
+	const compareDisposable = vscode.commands.registerCommand('sqlgem.compareSchemas', () => {
+		SchemaComparePanel.createOrShow(context.extensionUri);
 	});
 	context.subscriptions.push(compareDisposable);
 
@@ -1188,153 +1185,7 @@ export function activate(context: vscode.ExtensionContext) {
 		return text;
 	}
 
-	// ---------------------------------------------------------------------------
-	// Schema Compare command
-	// ---------------------------------------------------------------------------
 
-	/**
-	 * Interactively picks two schema sources, compares them, and opens a detailed
-	 * diff view in a dedicated webview panel.
-	 */
-	async function handleCompareSchemas(): Promise<void> {
-		const sourceA = await pickSchemaSource('Select Source Schema (Baseline)');
-		if (!sourceA) { return; }
-
-		const sourceB = await pickSchemaSource('Select Target Schema (Compare Against)');
-		if (!sourceB) { return; }
-
-		let extractedA: ExtractedSchema;
-		let extractedB: ExtractedSchema;
-
-		try {
-			extractedA = await sourceA.extract();
-		} catch (err) {
-			vscode.window.showErrorMessage(`Failed to load source schema: ${err}`);
-			return;
-		}
-
-		try {
-			extractedB = await sourceB.extract();
-		} catch (err) {
-			vscode.window.showErrorMessage(`Failed to load target schema: ${err}`);
-			return;
-		}
-
-		const comparison = compareSchemas(
-			extractedA.database,
-			extractedB.database,
-			extractedA.label,
-			extractedB.label,
-		);
-
-		const panel = vscode.window.createWebviewPanel(
-			'sqlgemSchemaCompare',
-			`Schema Diff: ${extractedA.label} → ${extractedB.label}`,
-			vscode.ViewColumn.One,
-			{ enableScripts: false },
-		);
-
-		panel.webview.html = generateDiffHTML(comparison);
-	}
-
-	/**
-	 * Shows a QuickPick that lets the user select a schema source.
-	 * Returns an object with an `extract` function, or undefined if cancelled.
-	 */
-	async function pickSchemaSource(
-		title: string,
-	): Promise<{ extract: () => Promise<ExtractedSchema> } | undefined> {
-
-		type PickItem = vscode.QuickPickItem & { _key: string };
-		const items: PickItem[] = [];
-
-		if (currentDatabase) {
-			items.push({
-				label: '$(database) Current Diagram',
-				description: `${currentDatabase.name} (in memory)`,
-				_key: 'current',
-			});
-		}
-
-		if (currentDatabaseFolderUri) {
-			// database.sql in the current folder
-			items.push({
-				label: '$(file-code) database.sql',
-				description: 'Current database SQL file',
-				_key: 'databasesql',
-			});
-
-			// Snapshots (only show option if any exist)
-			const snapshots = await listSnapshotFiles(currentDatabaseFolderUri);
-			if (snapshots.length > 0) {
-				items.push({
-					label: '$(history) Snapshot…',
-					description: `${snapshots.length} snapshot(s) available`,
-					_key: 'snapshot',
-				});
-			}
-		}
-
-		items.push(
-			{ label: '$(file-code) SQL File…', description: 'Browse for a .sql DDL file', _key: 'sql' },
-			{ label: '$(file-text) DBML File…', description: 'Browse for a .dbml file', _key: 'dbml' },
-		);
-
-		const pick = await vscode.window.showQuickPick(items, {
-			title,
-			placeHolder: 'Select schema source',
-		});
-		if (!pick) { return undefined; }
-
-		switch (pick._key) {
-			case 'current': {
-				const db = currentDatabase!;
-				return { extract: async () => ({ database: db, label: `${db.name} (current)` }) };
-			}
-			case 'databasesql': {
-				const folderUri = currentDatabaseFolderUri!;
-				return {
-					extract: () => extractFromSQLFile(
-						vscode.Uri.joinPath(folderUri, 'database.sql'),
-						'database.sql',
-					),
-				};
-			}
-			case 'snapshot': {
-				const folderUri = currentDatabaseFolderUri!;
-				const snapshotFiles = await listSnapshotFiles(folderUri);
-				const snapPick = await vscode.window.showQuickPick(
-					snapshotFiles.map(name => ({ label: name })),
-					{ title: 'Select Snapshot', placeHolder: 'Choose a snapshot file' },
-				);
-				if (!snapPick) { return undefined; }
-				const fileName = snapPick.label;
-				return { extract: () => extractFromSnapshot(folderUri, fileName) };
-			}
-			case 'sql': {
-				const uris = await vscode.window.showOpenDialog({
-					canSelectMany: false,
-					filters: { 'SQL files': ['sql'] },
-					title: 'Select SQL Schema File',
-				});
-				if (!uris || uris.length === 0) { return undefined; }
-				const uri = uris[0];
-				return { extract: () => extractFromSQLFile(uri) };
-			}
-			case 'dbml': {
-				const uris = await vscode.window.showOpenDialog({
-					canSelectMany: false,
-					filters: { 'DBML files': ['dbml'] },
-					title: 'Select DBML File',
-				});
-				if (!uris || uris.length === 0) { return undefined; }
-				const uri = uris[0];
-				return { extract: () => extractFromDBMLFile(uri) };
-			}
-			default:
-				return undefined;
-		}
-	}
 
 	/**
 	 * Creates a schema snapshot of the current in-memory database model and
