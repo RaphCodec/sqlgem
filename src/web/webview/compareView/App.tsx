@@ -1,12 +1,16 @@
 /**
- * Schema Compare — main React application.
+ * Schema Compare — single-page React application.
  *
  * Layout:
- *   Setup view  — two file selectors (Source / Target) + Compare button
- *   Results view — results tree on the left, side-by-side diff on the right
+ *   ┌─ header ────────────────────────────────────────────────────────────────┐
+ *   │ Schema Compare  Source [dropdown] ⇄ Target [dropdown]                  │
+ *   │ [▶ Compare] ☐ Ignore case  ···  [📜 Migration Script] [↻ Refresh]      │
+ *   ├─ body ──────────────────────────────────────────────────────────────────┤
+ *   │ results tree (260px) │ side-by-side diff                                │
+ *   └─────────────────────┴──────────────────────────────────────────────────┘
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
 	FluentProvider,
 	webLightTheme,
@@ -17,20 +21,16 @@ import {
 	tokens,
 	Spinner,
 	Text,
-	Divider,
-	Toolbar,
-	ToolbarButton,
 	Tooltip,
 	Badge,
 } from '@fluentui/react-components';
 import {
 	ArrowSyncRegular,
 	ScriptRegular,
-	ArrowLeftRegular,
-	DocumentTextRegular,
 	ArrowSwapRegular,
+	ArrowCounterclockwiseRegular,
 } from '@fluentui/react-icons';
-import { FileSelector } from './FileSelector';
+import { FileDropdown } from './FileDropdown';
 import { ResultsTree } from './ResultsTree';
 import { DiffView } from './DiffView';
 import type { ExtensionMessage, WebviewMessage, CompareResult } from './types';
@@ -58,59 +58,64 @@ const useStyles = makeStyles({
 		display: 'flex',
 		flexDirection: 'column',
 		overflow: 'hidden',
+		backgroundColor: tokens.colorNeutralBackground1,
 	},
-	toolbar: {
+
+	// ── Header ──────────────────────────────────────────────────────────────
+	header: {
+		display: 'flex',
+		flexDirection: 'column',
+		flexShrink: 0,
+		borderBottom: `1px solid ${tokens.colorNeutralStroke1}`,
+		backgroundColor: tokens.colorNeutralBackground2,
+	},
+	headerRow1: {
 		display: 'flex',
 		alignItems: 'center',
 		gap: tokens.spacingHorizontalS,
 		padding: `${tokens.spacingVerticalS} ${tokens.spacingHorizontalM}`,
-		backgroundColor: tokens.colorNeutralBackground1,
-		borderBottom: `1px solid ${tokens.colorNeutralStroke1}`,
-		flexShrink: 0,
 		flexWrap: 'wrap',
 	},
-	toolbarTitle: {
+	title: {
 		fontWeight: tokens.fontWeightSemibold,
-		fontSize: tokens.fontSizeBase400,
-		marginRight: tokens.spacingHorizontalM,
+		fontSize: tokens.fontSizeBase300,
+		color: tokens.colorNeutralForeground1,
+		whiteSpace: 'nowrap',
+		marginRight: tokens.spacingHorizontalS,
 	},
-	toolbarSpacer: {
+	spacer: {
 		flex: 1,
+		minWidth: tokens.spacingHorizontalS,
 	},
-	// ---- Setup view ----
-	setupView: {
-		flex: 1,
-		display: 'flex',
-		flexDirection: 'column',
-		overflow: 'hidden',
-		padding: tokens.spacingHorizontalM,
-		gap: tokens.spacingVerticalM,
-	},
-	setupSelectors: {
-		flex: 1,
-		display: 'grid',
-		gridTemplateColumns: '1fr 1fr',
-		gap: tokens.spacingHorizontalM,
-		minHeight: 0,
-	},
-	setupActions: {
+	headerRow2: {
 		display: 'flex',
 		alignItems: 'center',
-		gap: tokens.spacingHorizontalM,
-		flexShrink: 0,
+		gap: tokens.spacingHorizontalS,
+		padding: `0 ${tokens.spacingHorizontalM} ${tokens.spacingVerticalS}`,
+		flexWrap: 'wrap',
 	},
-	// ---- Results view ----
-	resultsView: {
+	errorBanner: {
+		padding: `${tokens.spacingVerticalXS} ${tokens.spacingHorizontalM}`,
+		backgroundColor: tokens.colorStatusDangerBackground1,
+		color: tokens.colorStatusDangerForeground1,
+		fontSize: tokens.fontSizeBase200,
+		borderTop: `1px solid ${tokens.colorStatusDangerBorder1}`,
+	},
+
+	// ── Body ────────────────────────────────────────────────────────────────
+	body: {
 		flex: 1,
 		display: 'grid',
-		gridTemplateColumns: '280px 1fr',
+		gridTemplateColumns: '260px 1fr',
 		overflow: 'hidden',
+		minHeight: 0,
 	},
 	treePanel: {
 		borderRight: `1px solid ${tokens.colorNeutralStroke1}`,
 		overflow: 'hidden',
 		display: 'flex',
 		flexDirection: 'column',
+		backgroundColor: tokens.colorNeutralBackground1,
 	},
 	diffPanel: {
 		overflow: 'hidden',
@@ -118,6 +123,9 @@ const useStyles = makeStyles({
 		flexDirection: 'column',
 	},
 	diffPanelHeader: {
+		display: 'flex',
+		alignItems: 'center',
+		gap: tokens.spacingHorizontalXS,
 		padding: `${tokens.spacingVerticalXS} ${tokens.spacingHorizontalM}`,
 		borderBottom: `1px solid ${tokens.colorNeutralStroke1}`,
 		fontSize: tokens.fontSizeBase200,
@@ -129,27 +137,30 @@ const useStyles = makeStyles({
 		flex: 1,
 		overflow: 'hidden',
 	},
-	// ---- Loading / error ----
-	centered: {
+
+	// ── Empty / loading states ────────────────────────────────────────────────
+	placeholder: {
 		flex: 1,
 		display: 'flex',
 		flexDirection: 'column',
 		alignItems: 'center',
 		justifyContent: 'center',
 		gap: tokens.spacingVerticalM,
-	},
-	errorText: {
-		color: tokens.colorStatusDangerForeground1,
-		maxWidth: '600px',
+		color: tokens.colorNeutralForeground3,
+		padding: tokens.spacingHorizontalXL,
 		textAlign: 'center',
+	},
+	loadingOverlay: {
+		flex: 1,
+		display: 'flex',
+		alignItems: 'center',
+		justifyContent: 'center',
 	},
 });
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-type AppView = 'setup' | 'comparing' | 'results';
 
 interface DiffPair {
 	sourceSql: string;
@@ -180,12 +191,12 @@ export function App() {
 		return () => observer.disconnect();
 	}, []);
 
-	// Application state
-	const [view,         setView]         = useState<AppView>('setup');
+	// State
 	const [files,        setFiles]        = useState<string[]>([]);
-	const [sourceFiles,  setSourceFiles]  = useState<string[]>([]);
-	const [targetFiles,  setTargetFiles]  = useState<string[]>([]);
+	const [sourceFile,   setSourceFile]   = useState<string | null>(null);
+	const [targetFile,   setTargetFile]   = useState<string | null>(null);
 	const [result,       setResult]       = useState<CompareResult | null>(null);
+	const [isComparing,  setIsComparing]  = useState(false);
 	const [selectedKey,  setSelectedKey]  = useState<string | null>(null);
 	const [diffMap,      setDiffMap]      = useState<Record<string, DiffPair>>({});
 	const [ignoreCase,   setIgnoreCase]   = useState(false);
@@ -201,8 +212,9 @@ export function App() {
 				break;
 			case 'compareResult':
 				setResult(msg.result);
-				setView('results');
+				setIsComparing(false);
 				setSelectedKey(null);
+				setDiffMap({});
 				break;
 			case 'diffContent':
 				setDiffMap(prev => ({
@@ -215,7 +227,7 @@ export function App() {
 				break;
 			case 'error':
 				setError(msg.message);
-				setView('setup');
+				setIsComparing(false);
 				break;
 		}
 	}, []);
@@ -226,40 +238,29 @@ export function App() {
 		return () => window.removeEventListener('message', handleMessage);
 	}, [handleMessage]);
 
-	// Actions
-	const swapSides = () => {
-		setSourceFiles(targetFiles);
-		setTargetFiles(sourceFiles);
+	// ── Actions ─────────────────────────────────────────────────────────────
+
+	const runComparison = (src = sourceFile, tgt = targetFile) => {
+		if (!src || !tgt) { return; }
+		setError(null);
+		setIsComparing(true);
+		setResult(null);
+		vscode.postMessage({
+			command: 'compare',
+			sourceFiles: [src],
+			targetFiles: [tgt],
+			options: { ignoreCase },
+		});
 	};
 
 	const swapAndRecompare = () => {
-		if (targetFiles.length === 0 && sourceFiles.length === 0) { return; }
-		const newSource = targetFiles;
-		const newTarget = sourceFiles;
-		setSourceFiles(newSource);
-		setTargetFiles(newTarget);
-		setError(null);
-		setView('comparing');
-		setDiffMap({});
-		vscode.postMessage({
-			command: 'compare',
-			sourceFiles: newSource,
-			targetFiles: newTarget,
-			options: { ignoreCase },
-		});
-	};
-
-	const runComparison = () => {
-		if (sourceFiles.length === 0 || targetFiles.length === 0) { return; }
-		setError(null);
-		setView('comparing');
-		setDiffMap({});
-		vscode.postMessage({
-			command: 'compare',
-			sourceFiles,
-			targetFiles,
-			options: { ignoreCase },
-		});
+		const newSrc = targetFile;
+		const newTgt = sourceFile;
+		setSourceFile(newSrc);
+		setTargetFile(newTgt);
+		if (newSrc && newTgt) {
+			runComparison(newSrc, newTgt);
+		}
 	};
 
 	const handleSelectObject = (key: string) => {
@@ -269,205 +270,161 @@ export function App() {
 		}
 	};
 
-	const handleGenerateMigration = () => {
-		setGenMigration(true);
-		vscode.postMessage({ command: 'generateMigration' });
-	};
-
-	const handleRefreshFiles = () => {
-		vscode.postMessage({ command: 'listFiles' });
-	};
-
+	const canCompare = !!sourceFile && !!targetFile && !isComparing;
 	const currentDiff = selectedKey ? diffMap[selectedKey] : null;
 	const selectedObj = result?.objects.find(o => o.key === selectedKey);
 
-	// ---------------------------------------------------------------------------
-	// Render helpers
-	// ---------------------------------------------------------------------------
+	// ── Render ───────────────────────────────────────────────────────────────
 
-	const renderToolbar = () => (
-		<div className={styles.toolbar}>
-			<Text className={styles.toolbarTitle}>Schema Compare</Text>
-
-			{view === 'results' && (
-				<>
-					<Button
-						appearance="subtle"
-						icon={<ArrowLeftRegular />}
-						onClick={() => setView('setup')}
-						size="small"
-					>
-						Back to Setup
-					</Button>
-					<Tooltip content="Swap source and target, then re-compare" relationship="label">
-						<Button
-							appearance="subtle"
-							icon={<ArrowSwapRegular />}
-							onClick={swapAndRecompare}
-							size="small"
-						>
-							Swap &amp; Re-compare
-						</Button>
-					</Tooltip>
-					<Tooltip content="Run comparison again" relationship="label">
-						<Button
-							appearance="subtle"
-							icon={<ArrowSyncRegular />}
-							onClick={runComparison}
-							size="small"
-						>
-							Re-compare
-						</Button>
-					</Tooltip>
-					<Tooltip content="Generate migration SQL and open in editor" relationship="label">
-						<Button
-							appearance="subtle"
-							icon={<ScriptRegular />}
-							onClick={handleGenerateMigration}
-							disabled={genMigration || !result}
-							size="small"
-						>
-							{genMigration ? 'Generating…' : 'Migration Script'}
-						</Button>
-					</Tooltip>
-				</>
-			)}
-
-			<div className={styles.toolbarSpacer} />
-
-			{view === 'setup' && (
-				<Tooltip content="Refresh file list from workspace" relationship="label">
-					<Button
-						appearance="subtle"
-						icon={<ArrowSyncRegular />}
-						onClick={handleRefreshFiles}
-						size="small"
-					>
-						Refresh Files
-					</Button>
-				</Tooltip>
-			)}
-		</div>
-	);
-
-	// ---- Setup view ----
-	const renderSetup = () => (
-		<div className={styles.setupView}>
-			{error && (
-				<Text className={styles.errorText}>{error}</Text>
-			)}
-
-			<div className={styles.setupSelectors}>
-				<FileSelector
-					label="Source"
-					accentColor="#2563eb"
-					availableFiles={files}
-					selectedFiles={sourceFiles}
-					onChange={setSourceFiles}
-				/>
-				<FileSelector
-					label="Target"
-					accentColor="#16a34a"
-					availableFiles={files}
-					selectedFiles={targetFiles}
-					onChange={setTargetFiles}
-				/>
-			</div>
-
-			<div className={styles.setupActions}>
-				<Button
-					appearance="primary"
-					icon={<ArrowSyncRegular />}
-					onClick={runComparison}
-					disabled={sourceFiles.length === 0 || targetFiles.length === 0}
-				>
-					Compare
-				</Button>
-				<Tooltip content="Swap source and target files" relationship="label">
-					<Button
-						appearance="secondary"
-						icon={<ArrowSwapRegular />}
-						onClick={swapSides}
-						disabled={sourceFiles.length === 0 && targetFiles.length === 0}
-					>
-						Swap
-					</Button>
-				</Tooltip>
-				<Checkbox
-					label="Ignore case differences"
-					checked={ignoreCase}
-					onChange={(_, data) => setIgnoreCase(!!data.checked)}
-				/>
-				{(sourceFiles.length === 0 || targetFiles.length === 0) && (
-					<Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>
-						Select at least one file on each side.
-					</Text>
-				)}
-			</div>
-		</div>
-	);
-
-	// ---- Comparing spinner ----
-	const renderComparing = () => (
-		<div className={styles.centered}>
-			<Spinner size="large" label="Comparing schemas…" />
-		</div>
-	);
-
-	// ---- Results view ----
-	const renderResults = () => (
-		<div className={styles.resultsView}>
-			{/* Left: results tree */}
-			<div className={styles.treePanel}>
-				{result && (
-					<ResultsTree
-						result={result}
-						selectedKey={selectedKey}
-						onSelect={handleSelectObject}
-					/>
-				)}
-			</div>
-
-			{/* Right: diff view */}
-			<div className={styles.diffPanel}>
-				{selectedObj && (
-					<div className={styles.diffPanelHeader}>
-						<strong>
-							{selectedObj.schemaName !== 'dbo'
-								? `${selectedObj.schemaName}.${selectedObj.name}`
-								: selectedObj.name}
-						</strong>
-						{' — '}
-						{selectedObj.change === 'added'    && <Badge color="success">Added</Badge>}
-						{selectedObj.change === 'removed'  && <Badge color="danger">Removed</Badge>}
-						{selectedObj.change === 'modified' && <Badge color="warning">Modified</Badge>}
-						{selectedObj.change === 'unchanged'&& <Badge color="informative">Unchanged</Badge>}
-						{currentDiff == null && selectedObj.change !== 'unchanged' && (
-							<Spinner size="tiny" style={{ marginLeft: 8 }} />
-						)}
-					</div>
-				)}
-
-				<div className={styles.diffContent}>
-					<DiffView
-						sourceSql={currentDiff?.sourceSql ?? ''}
-						targetSql={currentDiff?.targetSql ?? ''}
-						sourceLabel={result?.sourceLabel ?? 'Source'}
-						targetLabel={result?.targetLabel ?? 'Target'}
-					/>
-				</div>
-			</div>
-		</div>
-	);
-
-	// ---------------------------------------------------------------------------
 	return (
 		<FluentProvider theme={isDark ? webDarkTheme : webLightTheme} style={{ height: '100%' }}>
 			<div className={styles.root}>
-				{renderToolbar()}
-				{view === 'setup'     && renderSetup()}
-				{view === 'comparing' && renderComparing()}
-				{view === 'results'   && renderResults()}
+
+				{/* ── Header ── */}
+				<div className={styles.header}>
+
+					{/* Row 1: title + file pickers + swap */}
+					<div className={styles.headerRow1}>
+						<Text className={styles.title}>Schema Compare</Text>
+
+						<FileDropdown
+							id="source-file"
+							label="Source"
+							accentColor="#2563eb"
+							files={files}
+							value={sourceFile}
+							onChange={setSourceFile}
+						/>
+
+						<Tooltip content="Swap source and target" relationship="label">
+							<Button
+								appearance="subtle"
+								size="small"
+								icon={<ArrowSwapRegular />}
+								onClick={swapAndRecompare}
+								disabled={!sourceFile && !targetFile}
+							/>
+						</Tooltip>
+
+						<FileDropdown
+							id="target-file"
+							label="Target"
+							accentColor="#16a34a"
+							files={files}
+							value={targetFile}
+							onChange={setTargetFile}
+						/>
+					</div>
+
+					{/* Row 2: actions */}
+					<div className={styles.headerRow2}>
+						<Button
+							appearance="primary"
+							size="small"
+							icon={isComparing ? <Spinner size="tiny" /> : <ArrowSyncRegular />}
+							onClick={() => runComparison()}
+							disabled={!canCompare}
+						>
+							{isComparing ? 'Comparing…' : 'Compare'}
+						</Button>
+
+						<Checkbox
+							label="Ignore case"
+							size="medium"
+							checked={ignoreCase}
+							onChange={(_, d) => setIgnoreCase(!!d.checked)}
+						/>
+
+						<div className={styles.spacer} />
+
+						{result && (
+							<Tooltip content="Generate migration SQL and open in editor" relationship="label">
+								<Button
+									appearance="subtle"
+									size="small"
+									icon={<ScriptRegular />}
+									onClick={() => {
+										setGenMigration(true);
+										vscode.postMessage({ command: 'generateMigration' });
+									}}
+									disabled={genMigration}
+								>
+									{genMigration ? 'Generating…' : 'Migration Script'}
+								</Button>
+							</Tooltip>
+						)}
+
+						<Tooltip content="Refresh file list from workspace" relationship="label">
+							<Button
+								appearance="subtle"
+								size="small"
+								icon={<ArrowCounterclockwiseRegular />}
+								onClick={() => vscode.postMessage({ command: 'listFiles' })}
+							/>
+						</Tooltip>
+					</div>
+
+					{error && (
+						<div className={styles.errorBanner}>{error}</div>
+					)}
+				</div>
+
+				{/* ── Body ── */}
+				<div className={styles.body}>
+
+					{/* Left: results tree */}
+					<div className={styles.treePanel}>
+						{isComparing ? (
+							<div className={styles.loadingOverlay}>
+								<Spinner size="medium" label="Comparing…" />
+							</div>
+						) : result ? (
+							<ResultsTree
+								result={result}
+								selectedKey={selectedKey}
+								onSelect={handleSelectObject}
+							/>
+						) : (
+							<div className={styles.placeholder}>
+								<ArrowSyncRegular fontSize={32} />
+								<Text size={200}>
+									Select source and target files above, then click Compare.
+								</Text>
+							</div>
+						)}
+					</div>
+
+					{/* Right: diff view */}
+					<div className={styles.diffPanel}>
+						{selectedObj && (
+							<div className={styles.diffPanelHeader}>
+								<strong>
+									{selectedObj.schemaName !== 'dbo'
+										? `${selectedObj.schemaName}.${selectedObj.name}`
+										: selectedObj.name}
+								</strong>
+								{' — '}
+								{selectedObj.change === 'added'     && <Badge color="success">Added</Badge>}
+								{selectedObj.change === 'removed'   && <Badge color="danger">Removed</Badge>}
+								{selectedObj.change === 'modified'  && <Badge color="warning">Modified</Badge>}
+								{selectedObj.change === 'unchanged' && <Badge color="informative">Unchanged</Badge>}
+								{currentDiff == null && selectedObj.change !== 'unchanged' && (
+									<Spinner size="tiny" style={{ marginLeft: 8 }} />
+								)}
+							</div>
+						)}
+
+						<div className={styles.diffContent}>
+							<DiffView
+								sourceSql={currentDiff?.sourceSql ?? ''}
+								targetSql={currentDiff?.targetSql ?? ''}
+								sourceLabel={result?.sourceLabel ?? 'Source'}
+								targetLabel={result?.targetLabel ?? 'Target'}
+							/>
+						</div>
+					</div>
+
+				</div>
 			</div>
 		</FluentProvider>
 	);
